@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review Answer Sheet</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* DARKER BLUE THEME */
+            --bg-start: #1e3a8a; /* Dark Royal Blue */
+            --bg-end: #0f172a;   /* Very Dark Slate */
+            
+            --card-bg: #ffffff;
+            --text-main: #0f172a; 
+            --text-sub: #475569;  
+            
+            /* Stronger Accent Colors */
+            --primary-color: #1d4ed8; /* Strong Blue */
+            --primary-hover: #1e40af; /* Darker Blue */
+            --accent-bg: #eff6ff;     /* Light Blue Background for boxes */
+            --border-color: #cbd5e1;
+            
+            --focus-ring: #93c5fd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            /* High Contrast Dark Background */
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding: 40px 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 650px;
+            padding: 40px;
+            border-radius: 16px;
+            /* Stronger Shadow for "Pop" effect */
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Typography */
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: #1e3a8a; /* Dark Blue Heading */
+            letter-spacing: -0.5px;
+        }
+
+        h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 32px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            /* distinct underline styling */
+            border-bottom: 3px solid var(--primary-color);
+            display: inline-block; /* Underline only text width */
+            padding-right: 10px;
+        }
+
+        p {
+            font-size: 15px;
+            line-height: 1.6;
+            color: var(--text-sub);
+            margin-bottom: 8px;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 20px;
+            text-decoration: none;
+            color: #94a3b8; /* Light grey on white */
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: color 0.2s;
+        }
+        .back-link:hover {
+            color: var(--primary-color);
+        }
+
+        /* Flash Messages */
+        .flash-messages {
+            list-style: none;
+            margin-bottom: 24px;
+        }
+        .flash-messages li {
+            background-color: #fee2e2;
+            color: #b91c1c;
+            padding: 14px;
+            border-left: 5px solid #b91c1c; /* Left border accent */
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+
+        /* File Link Button */
+        .file-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background-color: #f1f5f9;
+            color: #334155;
+            padding: 12px 20px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 14px;
+            border: 1px solid #cbd5e1;
+            transition: all 0.2s;
+        }
+        .file-btn:hover {
+            background-color: var(--primary-color);
+            color: white;
+            border-color: var(--primary-color);
+            transform: translateY(-1px);
+        }
+
+        /* Extracted Text Box - Dark Terminal Style */
+        .code-block {
+            background-color: #0f172a; 
+            color: #e2e8f0;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Menlo', 'Monaco', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            max-height: 250px;
+            white-space: pre-wrap;
+            border: 1px solid #334155;
+            box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.3);
+        }
+        .empty-text {
+            font-style: italic;
+            color: #94a3b8;
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px dashed #cbd5e1;
+        }
+
+        /* Noticeable Score Card */
+        .score-card {
+            background-color: var(--accent-bg); /* Light Blue */
+            border: 2px solid #bfdbfe; /* Stronger Blue Border */
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+        }
+        
+        .score-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .score-value {
+            font-size: 28px; /* Larger */
+            font-weight: 800;
+            color: var(--primary-color);
+            background: white;
+            padding: 5px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        
+        .score-label {
+            font-weight: 700;
+            color: #1e3a8a;
+            font-size: 16px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Form Elements */
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 8px;
+        }
+
+        input[type="number"], textarea {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e2e8f0; /* Thicker borders */
+            border-radius: 8px;
+            font-size: 15px;
+            color: #0f172a;
+            background-color: #fff;
+            outline: none;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Sharp Blue Focus */
+        input[type="number"]:focus, textarea:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 4px var(--focus-ring);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background-color: var(--primary-color);
+            color: #fff;
+            font-weight: 700;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            transition: all 0.2s;
+            margin-top: 10px;
+            box-shadow: 0 4px 6px -1px rgba(29, 78, 216, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-submit:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px -1px rgba(29, 78, 216, 0.5);
+        }
+
+        .status-alert {
+            padding: 15px;
+            background-color: #f1f5f9;
+            color: #475569;
+            border-radius: 8px;
+            font-size: 14px;
+            text-align: center;
+            border: 1px solid #cbd5e1;
+            font-weight: 500;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <a href="{{ url_for('web.teacher_dashboard') }}" class="back-link">
+            ← Back to Dashboard
+        </a>
+
+        <h1>Review Answer Sheet <span style="color:var(--primary-color);">#{{ sheet.sheet_id }}</span></h1>
+        
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flash-messages">
+              {% for category, message in messages %}
+                <li><strong>{{ category|title }}:</strong> {{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <h2>Scanned File</h2>
+        <a href="{{ file_url }}" target="_blank" class="file-btn">
+            <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+            </svg>
+            View Uploaded File
+        </a>
+
+        <h2>Extracted Text</h2>
+        {% if extracted %}
+            <pre class="code-block">{{ extracted.raw_text }}</pre>
+        {% else %}
+            <p class="empty-text">No text could be extracted from this document.</p>
+        {% endif %}
+
+        <h2>Auto Evaluation</h2>
+        {% if evaluation %}
+            <div class="score-card">
+                <div class="score-row">
+                    <span class="score-label">Automated Score</span>
+                    <span class="score-value">{{ evaluation.score }}</span>
+                </div>
+                <hr style="border: 0; border-top: 1px solid #bfdbfe; margin: 15px 0;">
+                <p><strong style="color: #1e3a8a;">Feedback:</strong><br> {{ evaluation.feedback }}</p>
+                <p style="font-size: 12px; color: #64748b; margin-top: 12px; font-weight: 500;">Evaluated on: {{ evaluation.evaluated_on }}</p>
+            </div>
+        {% else %}
+            <p>No automated evaluation found.</p>
+        {% endif %}
+
+        <h2>Override Score</h2>
+        {% if sheet.status.value == 'Graded' %}
+            <form method="post">
+                <div class="form-group">
+                    <label>New Score</label>
+                    <input type="number" step="0.01" name="score" placeholder="Enter new score" required>
+                </div>
+                <div class="form-group">
+                    <label>Teacher Feedback</label>
+                    <textarea name="feedback" rows="4" placeholder="Enter reason for override..."></textarea>
+                </div>
+                <button type="submit" class="btn-submit">Save Override</button>
+            </form>
+        {% else %}
+            <div class="status-alert">
+                This sheet is already <strong>{{ sheet.status.value }}</strong>. <br>Overrides are disabled.
+            </div>
+        {% endif %}
+
+    </div>
+
+</body>
+</html>

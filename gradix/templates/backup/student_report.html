@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Student Reports</title>
+  </head>
+  <body>
+    <h1>My Reports</h1>
+    <p><a href="{{ url_for('web.logout') }}">Logout</a></p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+          {% for category, message in messages %}
+            <li><strong>{{ category }}:</strong> {{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    {% if student %}
+      <h2>Student Info</h2>
+      <p>ID: {{ student.student_id }}</p>
+      <p>Name: {{ student.name }}</p>
+      <p>Roll No: {{ student.roll_no }}</p>
+      <p>Course: {{ student.course }}</p>
+      <p>Semester: {{ student.semester }}</p>
+
+      <h2>Reports</h2>
+      <table border="1" cellpadding="4" cellspacing="0">
+        <thead>
+          <tr>
+            <th>Exam</th>
+            <th>Total Score</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for report in reports %}
+            <tr>
+              <td>{{ report.exam.subject if report.exam else report.exam_id }}</td>
+              <td>{{ report.total_score }}</td>
+              <td>{{ report.remarks }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="3">No reports available.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p>No student record linked to this account.</p>
+    {% endif %}
+  </body>
+</html>

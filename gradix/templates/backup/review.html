@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Review Answer Sheet</title>
+  </head>
+  <body>
+    <h1>Review Answer Sheet {{ sheet.sheet_id }}</h1>
+    <p><a href="{{ url_for('web.teacher_dashboard') }}">Back to Dashboard</a></p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+          {% for category, message in messages %}
+            <li><strong>{{ category }}:</strong> {{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <h2>Scanned File</h2>
+    <p>
+      <a href="{{ file_url }}" target="_blank">Open uploaded file</a>
+    </p>
+
+    <h2>Extracted Text</h2>
+    {% if extracted %}
+      <pre>{{ extracted.raw_text }}</pre>
+    {% else %}
+      <p>No extracted text.</p>
+    {% endif %}
+
+    <h2>Auto Evaluation</h2>
+    {% if evaluation %}
+      <p>Score: {{ evaluation.score }}</p>
+      <p>Feedback: {{ evaluation.feedback }}</p>
+      <p>Evaluated on: {{ evaluation.evaluated_on }}</p>
+    {% else %}
+      <p>No evaluation found.</p>
+    {% endif %}
+
+    {% if sheet.status.value == 'Graded' %}
+      <h2>Override Score</h2>
+      <form method="post">
+        <div>
+          <label>New Score:
+            <input type="number" step="0.01" name="score" required>
+          </label>
+        </div>
+        <div>
+          <label>Feedback:
+            <textarea name="feedback" rows="4" cols="40"></textarea>
+          </label>
+        </div>
+        <div>
+          <button type="submit">Save Override</button>
+        </div>
+      </form>
+    {% else %}
+      <p>This sheet is already {{ sheet.status.value }}; overrides are disabled.</p>
+    {% endif %}
+  </body>
+</html>

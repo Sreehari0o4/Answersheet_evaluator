@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Upload Answer Sheet</title>
+  </head>
+  <body>
+    <h1>Upload Answer Sheet</h1>
+    <p><a href="{{ url_for('web.teacher_dashboard') }}">Back to Dashboard</a></p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+          {% for category, message in messages %}
+            <li><strong>{{ category }}:</strong> {{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <form method="post" enctype="multipart/form-data">
+      <div>
+        <label>Student:
+          <select name="student_id" required>
+            <option value="">-- Select --</option>
+            {% for s in students %}
+              <option value="{{ s.student_id }}">{{ s.student_id }} - {{ s.name }} ({{ s.roll_no }})</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div>
+        <label>Exam:
+          <select name="exam_id" required>
+            <option value="">-- Select --</option>
+            {% for e in exams %}
+              <option value="{{ e.exam_id }}">{{ e.exam_id }} - {{ e.subject }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+      <div>
+        <label>File (PDF/JPG/PNG):
+          <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" required>
+        </label>
+      </div>
+      <div>
+        <button type="submit">Upload &amp; Auto-Evaluate</button>
+      </div>
+    </form>
+  </body>
+</html>

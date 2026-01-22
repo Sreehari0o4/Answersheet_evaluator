@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Create Exam</title>
+  </head>
+  <body>
+    <h1>Create New Exam</h1>
+    <p><a href="{{ url_for('web.teacher_dashboard') }}">Back to Dashboard</a></p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+          {% for category, message in messages %}
+            <li><strong>{{ category }}:</strong> {{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <form method="post">
+      <div>
+        <label>Subject:
+          <input type="text" name="subject" required>
+        </label>
+      </div>
+      <div>
+        <label>Max Marks:
+          <input type="number" name="max_marks" min="1" required>
+        </label>
+      </div>
+      <div>
+        <label>Rubric / Model Answer (optional):
+          <textarea name="rubric_details" rows="4" cols="40"></textarea>
+        </label>
+      </div>
+      <div>
+        <button type="submit">Create Exam</button>
+      </div>
+    </form>
+  </body>
+</html>

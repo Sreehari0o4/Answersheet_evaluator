@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Teacher Dashboard</title>
+  </head>
+  <body>
+    <h1>Teacher Dashboard</h1>
+    <p>Logged in as: {{ teacher.name }} ({{ teacher.email }})</p>
+    <p><a href="{{ url_for('web.logout') }}">Logout</a></p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+          {% for category, message in messages %}
+            <li><strong>{{ category }}:</strong> {{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <h2>Exams</h2>
+    <p>
+      <a href="{{ url_for('web.create_exam_page') }}">Create New Exam</a> |
+      <a href="{{ url_for('web.manage_students') }}">Manage Students</a>
+    </p>
+    <ul>
+      {% for exam in exams %}
+        <li>{{ exam.exam_id }} - {{ exam.subject }} (Max: {{ exam.max_marks }})</li>
+      {% else %}
+        <li>No exams.</li>
+      {% endfor %}
+    </ul>
+
+    <h2>Answer Sheets</h2>
+    <p><a href="{{ url_for('web.upload_page') }}">Upload Answer Sheet</a></p>
+
+    <table border="1" cellpadding="4" cellspacing="0">
+      <thead>
+        <tr>
+          <th>Sheet ID</th>
+          <th>Student ID</th>
+          <th>Exam ID</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sheet in sheets %}
+          <tr>
+            <td>{{ sheet.sheet_id }}</td>
+            <td>{{ sheet.student_id }}</td>
+            <td>{{ sheet.exam_id }}</td>
+            <td>{{ sheet.status.value }}</td>
+            <td>
+              {% if sheet.status == AnswerSheetStatus.GRADED %}
+                <a href="{{ url_for('web.review_page', sheet_id=sheet.sheet_id) }}">Review</a>
+              {% elif sheet.status == AnswerSheetStatus.REVIEWED %}
+                <!-- Teacher can view report via API or separate page; keep simple -->
+                <a href="{{ url_for('report.get_report', student_id=sheet.student_id, exam_id=sheet.exam_id) }}">View Report (JSON)</a>
+              {% else %}
+                Pending evaluation
+              {% endif %}
+            </td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5">No answer sheets yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>

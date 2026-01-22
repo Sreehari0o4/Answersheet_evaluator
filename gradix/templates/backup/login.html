@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Gradix - Login</title>
+  </head>
+  <body>
+    <h1>Gradix Login</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+          {% for category, message in messages %}
+            <li><strong>{{ category }}:</strong> {{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <h2>Teacher / Admin Login</h2>
+    <form method="post">
+      <div>
+        <label>Email:
+          <input type="email" name="email" required>
+        </label>
+      </div>
+      <div>
+        <label>Password:
+          <input type="password" name="password" required>
+        </label>
+      </div>
+      <div>
+        <button type="submit">Login</button>
+      </div>
+    </form>
+
+    <h2>Student Login</h2>
+    <form method="post" action="{{ url_for('web.student_login') }}">
+      <div>
+        <label>Name:
+          <input type="text" name="student_name" required>
+        </label>
+      </div>
+      <div>
+        <label>Roll Number:
+          <input type="text" name="roll_no" required>
+        </label>
+      </div>
+      <div>
+        <button type="submit">Login as Student</button>
+      </div>
+    </form>
+  </body>
+</html>

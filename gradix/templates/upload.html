@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Answer Sheet</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* DEEP BLUE THEME */
+            --bg-start: #1e3a8a; /* Dark Royal Blue */
+            --bg-end: #0f172a;   /* Very Dark Slate */
+            
+            --card-bg: #ffffff;
+            --text-main: #0f172a; 
+            --text-sub: #475569;  
+            
+            /* Stronger Accent Colors */
+            --primary-btn: #1d4ed8; /* Strong Blue */
+            --primary-btn-hover: #1e40af; /* Darker Blue */
+            
+            --border-color: #cbd5e1;
+            --focus-ring: #93c5fd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            /* High Contrast Dark Background */
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: var(--text-main);
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 550px;
+            padding: 40px;
+            border-radius: 16px;
+            /* Stronger Shadow for "Pop" effect */
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+            margin: 20px;
+        }
+
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: #1e3a8a; /* Dark Blue Heading */
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            color: var(--text-sub);
+            font-size: 15px;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+
+        /* Flash Messages styling */
+        .flash-messages {
+            list-style: none;
+            margin-bottom: 24px;
+        }
+        .flash-messages li {
+            background-color: #fee2e2;
+            color: #b91c1c;
+            padding: 14px;
+            border-left: 5px solid #b91c1c;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+
+        /* Custom Upload Area styling */
+        .upload-area {
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 40px 20px;
+            text-align: center;
+            margin-bottom: 24px;
+            position: relative;
+            transition: all 0.3s ease;
+            background-color: #f8fafc;
+        }
+
+        /* Strong Blue Hover */
+        .upload-area:hover {
+            border-color: var(--primary-btn);
+            background-color: #eff6ff;
+            transform: translateY(-2px);
+        }
+
+        .upload-area input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .icon-cloud {
+            width: 54px;
+            height: 54px;
+            margin-bottom: 12px;
+            color: #94a3b8;
+            transition: color 0.3s;
+        }
+
+        .upload-area:hover .icon-cloud {
+            color: var(--primary-btn);
+        }
+
+        .upload-text-main {
+            font-weight: 700;
+            color: #334155;
+            margin-bottom: 4px;
+            font-size: 15px;
+        }
+
+        .upload-text-sub {
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        /* Form Layout */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 16px;
+        }
+        
+        .col {
+            flex: 1;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 8px;
+        }
+
+        select, input[type="text"] {
+            width: 100%;
+            padding: 12px 14px;
+            border: 2px solid #e2e8f0; /* Thicker border */
+            border-radius: 8px;
+            font-size: 14px;
+            color: #0f172a;
+            background-color: #fff;
+            outline: none;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        select:focus, input[type="text"]:focus {
+            border-color: var(--primary-btn);
+            box-shadow: 0 0 0 4px var(--focus-ring);
+        }
+
+        .btn-submit {
+            width: 100%;
+            background-color: var(--primary-btn);
+            color: #fff;
+            font-weight: 700;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            transition: all 0.2s;
+            margin-top: 16px;
+            box-shadow: 0 4px 6px -1px rgba(29, 78, 216, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-submit:hover {
+            background-color: var(--primary-btn-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px -1px rgba(29, 78, 216, 0.5);
+        }
+        
+        .btn-submit:active {
+            transform: translateY(0);
+        }
+
+        /* Back Link (Optional if you add it later) */
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            text-decoration: none;
+            color: #94a3b8;
+            font-size: 13px;
+        } 
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Upload Answer Sheet</h1>
+        <p class="subtitle">Upload the scanned answer script for automated evaluation.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flash-messages">
+              {% for category, message in messages %}
+                <li>{{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <form method="post" enctype="multipart/form-data">
+            
+            <div class="upload-area">
+                <svg class="icon-cloud" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <div class="upload-text-main">Click to upload or drag and drop</div>
+                <div class="upload-text-sub">PDF, PNG, or JPG (max 10MB)</div>
+                
+                <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" required>
+            </div>
+
+            <div class="form-group">
+                <label>Student Name</label>
+                <input type="text" name="student_name" placeholder="Enter student name" required>
+            </div>
+
+            <div class="form-group">
+                <label>Roll Number</label>
+                <input type="text" name="roll_no" placeholder="Enter roll number" required>
+            </div>
+
+            <div class="form-row">
+                <div class="col">
+                            <label>Exam</label>
+                            <select name="exam_id" required>
+                                <option value="" disabled selected>Select exam</option>
+                        {% for e in exams %}
+                          <option value="{{ e.exam_id }}">{{ e.subject }}</option>
+                        {% endfor %}
+                     </select>
+                </div>
+                
+                <div class="col">
+                     </div>
+            </div>
+
+            <button type="submit" class="btn-submit">Start Evaluation</button>
+        </form>
+    </div>
+
+</body>
+</html>

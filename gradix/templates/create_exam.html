@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Create Exam</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* DEEP BLUE THEME */
+            --bg-start: #1e3a8a; /* Dark Royal Blue */
+            --bg-end: #0f172a;   /* Very Dark Slate */
+            
+            --card-bg: #ffffff;
+            --text-main: #0f172a; 
+            --text-sub: #475569;  
+            
+            --primary-btn: #1d4ed8; 
+            --primary-btn-hover: #1e40af; 
+            
+            --border-color: #cbd5e1;
+            --focus-ring: #93c5fd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 600px; /* Slightly wider for the textarea */
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: #1e3a8a;
+            letter-spacing: -0.5px;
+        }
+
+        p.subtitle {
+            color: var(--text-sub);
+            font-size: 15px;
+            margin-bottom: 24px;
+        }
+
+        /* Back Link */
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 20px;
+            text-decoration: none;
+            color: #94a3b8;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: color 0.2s;
+        }
+        .back-link:hover {
+            color: var(--primary-btn);
+        }
+
+        /* Flash Messages */
+        .flash-messages {
+            list-style: none;
+            margin-bottom: 24px;
+        }
+        .flash-messages li {
+            background-color: #fee2e2;
+            color: #b91c1c;
+            padding: 14px;
+            border-left: 5px solid #b91c1c;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+
+        /* Form Layout */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .col-grow {
+            flex: 2; /* Subject takes more space */
+        }
+        
+        .col-fixed {
+            flex: 1; /* Marks takes less space */
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #334155;
+            margin-bottom: 8px;
+        }
+        
+        /* Optional text in label */
+        label span {
+            font-weight: 400;
+            color: #94a3b8;
+            font-size: 12px;
+            margin-left: 4px;
+        }
+
+        input[type="text"], 
+        input[type="number"], 
+        textarea {
+            width: 100%;
+            padding: 12px 14px;
+            border: 2px solid #e2e8f0;
+            border-radius: 8px;
+            font-size: 14px;
+            color: #0f172a;
+            background-color: #fff;
+            outline: none;
+            transition: all 0.2s;
+            font-family: 'Inter', sans-serif;
+        }
+
+        input:focus, textarea:focus {
+            border-color: var(--primary-btn);
+            box-shadow: 0 0 0 4px var(--focus-ring);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 120px;
+            line-height: 1.5;
+        }
+
+        .btn-submit {
+            width: 100%;
+            background-color: var(--primary-btn);
+            color: #fff;
+            font-weight: 700;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            transition: all 0.2s;
+            margin-top: 10px;
+            box-shadow: 0 4px 6px -1px rgba(29, 78, 216, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-submit:hover {
+            background-color: var(--primary-btn-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 8px -1px rgba(29, 78, 216, 0.5);
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <a href="{{ url_for('web.teacher_dashboard') }}" class="back-link">
+            ← Back to Dashboard
+        </a>
+
+        <h1>Create New Exam</h1>
+        <p class="subtitle">Set up the details for a new evaluation.</p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flash-messages">
+              {% for category, message in messages %}
+                <li><strong>{{ category }}:</strong> {{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <form method="post">
+            
+            <div class="form-row">
+                <div class="col-grow">
+                    <label>Subject</label>
+                    <input type="text" name="subject" required placeholder="e.g. Mathematics Final">
+                </div>
+                <div class="col-fixed">
+                    <label>Max Marks</label>
+                    <input type="number" name="max_marks" min="1" required placeholder="100">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Rubric / Model Answer <span>(Optional)</span></label>
+                <textarea name="rubric_details" placeholder="Enter guidelines for automated evaluation..."></textarea>
+            </div>
+
+            <div>
+                <button type="submit" class="btn-submit">Create Exam</button>
+            </div>
+        </form>
+    </div>
+
+</body>
+</html>

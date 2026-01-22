@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evaluated Students</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            --bg-start: #1e3a8a;
+            --bg-end: #0f172a;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-sub: #475569;
+            --primary-btn: #1d4ed8;
+            --primary-btn-hover: #1e40af;
+            --border-color: #cbd5e1;
+            --table-header-bg: #eff6ff;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding: 40px 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 900px;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            color: #1e3a8a;
+            letter-spacing: -0.5px;
+        }
+
+        h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 28px;
+            margin-bottom: 12px;
+            padding-bottom: 6px;
+            border-bottom: 3px solid var(--primary-btn);
+            display: inline-block;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 24px;
+            text-decoration: none;
+            color: #94a3b8;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: color 0.2s;
+        }
+        .back-link:hover {
+            color: var(--primary-btn);
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            text-align: left;
+        }
+
+        thead {
+            background-color: var(--table-header-bg);
+        }
+
+        th {
+            padding: 14px 16px;
+            font-weight: 700;
+            color: #1e3a8a;
+            border-bottom: 2px solid var(--border-color);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 12px 16px;
+            color: #334155;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background-color: #f8fafc;
+        }
+
+        .empty-text {
+            text-align: center;
+            color: #94a3b8;
+            font-style: italic;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <a href="{{ url_for('web.teacher_dashboard') }}" class="back-link">
+            ← Back to Dashboard
+        </a>
+
+        <h1>Evaluated Students</h1>
+
+        {% if not exams %}
+            <p class="empty-text">No evaluated students yet.</p>
+        {% else %}
+            <!-- Exam buttons -->
+            <div style="margin: 16px 0 24px; display: flex; flex-wrap: wrap; gap: 8px;">
+                {% for exam in exams %}
+                    <a href="{{ url_for('web.evaluated_students', exam_id=exam.exam_id) }}"
+                       style="padding: 8px 14px; border-radius: 999px; border: 1px solid #cbd5e1; font-size: 13px; text-decoration: none; {% if selected_exam and selected_exam.exam_id == exam.exam_id %}background-color: #1d4ed8; color: #fff; border-color: #1d4ed8;{% else %}color: #0f172a; background-color: #f1f5f9;{% endif %}">
+                        Exam {{ exam.exam_id }} - {{ exam.subject }}
+                    </a>
+                {% endfor %}
+            </div>
+
+            {% if not selected_exam %}
+                <p class="empty-text">Select an exam above to view evaluated students and marks.</p>
+            {% elif not student_rows %}
+                <h2>{{ selected_exam.subject }}</h2>
+                <p class="empty-text">No evaluated students for this exam yet.</p>
+            {% else %}
+                <h2>{{ selected_exam.subject }}</h2>
+                <div class="table-container">
+                    <table cellspacing="0">
+                        <thead>
+                            <tr>
+                                <th>S.No</th>
+                                <th>Name</th>
+                                <th>Roll Number</th>
+                                <th>Current Mark</th>
+                                <th>Status</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in student_rows %}
+                                <tr>
+                                    <td>{{ loop.index }}</td>
+                                    <td><strong>{{ row.student.name }}</strong></td>
+                                    <td>{{ row.student.roll_no }}</td>
+                                    <td>{{ '%.2f'|format(row.evaluation.score) }}</td>
+                                    <td>{{ row.sheet.status.value }}</td>
+                                    <td>
+                                        {% if row.sheet.status.name == 'GRADED' %}
+                                            <a href="{{ url_for('web.review_page', sheet_id=row.sheet.sheet_id) }}">Review</a>
+                                        {% elif row.sheet.status.name == 'REVIEWED' %}
+                                            <a href="{{ url_for('web.teacher_report', student_id=row.student.student_id, exam_id=row.sheet.exam_id) }}">View Report</a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+
+</body>
+</html>

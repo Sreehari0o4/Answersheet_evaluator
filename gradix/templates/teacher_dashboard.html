@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teacher Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* DEEP BLUE THEME */
+            --bg-start: #1e3a8a; 
+            --bg-end: #0f172a;   
+            
+            --card-bg: #ffffff;
+            --text-main: #0f172a; 
+            --text-sub: #475569;  
+            
+            --primary-btn: #1d4ed8; 
+            --primary-btn-hover: #1e40af; 
+            --secondary-bg: #f1f5f9;
+            
+            --border-color: #cbd5e1;
+            --table-header-bg: #eff6ff;
+            --success-color: #15803d;
+            --warning-color: #b45309;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding: 40px 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 900px; /* Wide card for dashboard */
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Header Section */
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 30px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+
+        .header-left h1 {
+            font-size: 28px;
+            font-weight: 800;
+            color: #1e3a8a;
+            letter-spacing: -0.5px;
+            margin-bottom: 4px;
+        }
+
+        .user-info {
+            font-size: 14px;
+            color: var(--text-sub);
+        }
+
+        .logout-btn {
+            background-color: #fff;
+            color: #ef4444;
+            border: 1px solid #fee2e2;
+            padding: 8px 16px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .logout-btn:hover {
+            background-color: #fef2f2;
+            border-color: #fca5a5;
+        }
+
+        h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 20px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 3px solid var(--primary-btn);
+            display: inline-block;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Flash Messages */
+        .flash-messages {
+            list-style: none;
+            margin-bottom: 24px;
+        }
+        .flash-messages li {
+            background-color: #eff6ff;
+            color: #1e40af;
+            padding: 12px;
+            border-left: 5px solid #1e40af;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 10px;
+        }
+
+        /* Action Buttons Toolbar */
+        .action-toolbar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .btn-action {
+            display: inline-flex;
+            align-items: center;
+            background-color: var(--secondary-bg);
+            color: #334155;
+            padding: 10px 16px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            border: 1px solid var(--border-color);
+        }
+        
+        .btn-action:hover {
+            background-color: #e2e8f0;
+            color: #0f172a;
+            transform: translateY(-1px);
+        }
+
+        .btn-primary-action {
+            background-color: var(--primary-btn);
+            color: white;
+            border-color: var(--primary-btn);
+        }
+        .btn-primary-action:hover {
+            background-color: var(--primary-btn-hover);
+            color: white;
+        }
+
+        /* Lists */
+        .exam-list {
+            list-style: none;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 40px;
+        }
+        .exam-list li {
+            padding: 14px 20px;
+            border-bottom: 1px solid var(--border-color);
+            background-color: #fff;
+            color: #334155;
+            font-size: 14px;
+        }
+        .exam-list li:last-child {
+            border-bottom: none;
+        }
+        .exam-list li:hover {
+            background-color: #f8fafc;
+        }
+
+        /* Tables */
+        .table-container {
+            overflow-x: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            text-align: left;
+        }
+
+        thead {
+            background-color: var(--table-header-bg);
+        }
+
+        th {
+            padding: 14px 16px;
+            font-weight: 700;
+            color: #1e3a8a;
+            border-bottom: 2px solid var(--border-color);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 14px 16px;
+            color: #334155;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background-color: #f8fafc;
+        }
+
+        /* Action Links in Table */
+        .link-review {
+            color: var(--primary-btn);
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .link-review:hover {
+            text-decoration: underline;
+        }
+        
+        .status-text {
+            font-weight: 500;
+            font-size: 13px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        
+        <div class="dashboard-header">
+            <div class="header-left">
+                <h1>Teacher Dashboard</h1>
+                <div class="user-info">Logged in as: <strong>{{ teacher.name }}</strong> ({{ teacher.email }})</div>
+            </div>
+            <div>
+                <a href="{{ url_for('web.logout') }}" class="logout-btn">Logout</a>
+            </div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+          {% if messages %}
+            <ul class="flash-messages">
+              {% for category, message in messages %}
+                <li><strong>{{ category }}:</strong> {{ message }}</li>
+              {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <h2>Exams</h2>
+        <div class="action-toolbar">
+            <a href="{{ url_for('web.create_exam_page') }}" class="btn-action">＋ Create New Exam</a>
+            <a href="{{ url_for('web.evaluated_students') }}" class="btn-action">Evaluated Students</a>
+        </div>
+        
+        <ul class="exam-list">
+            {% for exam in exams %}
+                <li><strong>{{ exam.exam_id }}</strong> - {{ exam.subject }} <span style="color:#64748b; font-size:13px;">(Max Marks: {{ exam.max_marks }})</span></li>
+            {% else %}
+                <li style="font-style: italic; color: #94a3b8;">No exams created yet.</li>
+            {% endfor %}
+        </ul>
+
+        <h2>Answer Sheets</h2>
+        <div class="action-toolbar">
+            <a href="{{ url_for('web.upload_page') }}" class="btn-action btn-primary-action">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right:6px; vertical-align: text-bottom;">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+                </svg>
+                Upload Answer Sheet
+            </a>
+        </div>
+
+        <!-- Answer sheet details and review are available in the Evaluated Students page -->
+        
+    </div>
+
+</body>
+</html>

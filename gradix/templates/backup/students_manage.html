@@ -1,0 +1,73 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Manage Students</title>
+  </head>
+  <body>
+    <h1>Manage Students</h1>
+    <p><a href="{{ url_for('web.teacher_dashboard') }}">Back to Dashboard</a></p>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <ul>
+          {% for category, message in messages %}
+            <li><strong>{{ category }}:</strong> {{ message }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    {% endwith %}
+
+    <h2>Add New Student</h2>
+    <form method="post">
+      <div>
+        <label>Name:
+          <input type="text" name="name" required>
+        </label>
+      </div>
+      <div>
+        <label>Roll Number:
+          <input type="text" name="roll_no" required>
+        </label>
+      </div>
+      <div>
+        <label>Course:
+          <input type="text" name="course" required>
+        </label>
+      </div>
+      <div>
+        <label>Semester:
+          <input type="text" name="semester" required>
+        </label>
+      </div>
+      <div>
+        <button type="submit">Add Student</button>
+      </div>
+    </form>
+
+    <h2>Existing Students</h2>
+    <table border="1" cellpadding="4" cellspacing="0">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Name</th>
+          <th>Roll No</th>
+          <th>Course</th>
+          <th>Semester</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in students %}
+          <tr>
+            <td>{{ s.student_id }}</td>
+            <td>{{ s.name }}</td>
+            <td>{{ s.roll_no }}</td>
+            <td>{{ s.course }}</td>
+            <td>{{ s.semester }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5">No students yet.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </body>
+</html>
