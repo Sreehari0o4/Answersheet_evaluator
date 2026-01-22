@@ -29,8 +29,8 @@ from .models import (
     UserRole,
 )
 from .ocr.routes import run_ocr
-from .preprocess.routes import preprocess_text
-from .evaluate.routes import semantic_score
+from .preprocess.routes import preprocess_text, split_numbered_answers
+from .evaluate.routes import evaluate_text_by_questions
 from .answersheet.routes import _allowed_file
 
 
@@ -432,13 +432,9 @@ def upload_page():
         db.session.flush()
 
         model_answer = exam.rubric_details or "Reference answer not provided."
-        semantic = semantic_score(cleaned_text, model_answer)
-        keyword_score = 0.80
-        grammar_score = 0.90
-        final_score = round((semantic + keyword_score + grammar_score) / 3.0, 2)
-        feedback = (
-            f"Semantic: {semantic:.2f}, Keyword: {keyword_score:.2f}, "
-            f"Grammar: {grammar_score:.2f}. Final score: {final_score:.2f}."
+        final_score, feedback, per_q = evaluate_text_by_questions(
+            cleaned_text,
+            model_answer,
         )
 
         evaluation = Evaluation(
@@ -449,6 +445,20 @@ def upload_page():
             evaluated_on=datetime.utcnow(),
         )
         db.session.add(evaluation)
+        db.session.flush()
+
+        # Store per-question evaluations
+        from .models import QuestionEvaluation
+
+        for item in per_q:
+            q_no = int(item["question_no"])
+            q_score = float(item["score"])
+            qe = QuestionEvaluation(
+                eval_id=evaluation.eval_id,
+                question_no=q_no,
+                score=q_score,
+            )
+            db.session.add(qe)
 
         sheet.status = AnswerSheetStatus.GRADED
         db.session.commit()
@@ -477,36 +487,89 @@ def review_page(sheet_id: int):
         flash("No evaluation found for this answer sheet.", "error")
         return redirect(url_for("web.teacher_dashboard"))
 
+    # Build per-question details for display from stored question scores,
+    # using the current cleaned text only to show answer excerpts.
+    per_question_details = []
+    if extracted is not None and evaluation is not None:
+        answers_by_q = {
+            q_no: ans for q_no, ans in split_numbered_answers(extracted.cleaned_text)
+        }
+
+        for qe in sorted(evaluation.question_scores, key=lambda x: x.question_no):
+            per_question_details.append(
+                {
+                    "question_no": qe.question_no,
+                    "answer_text": answers_by_q.get(qe.question_no, ""),
+                    "score": qe.score,
+                    "feedback": qe.feedback or "",
+                }
+            )
+
     if request.method == "POST":
         if sheet.status != AnswerSheetStatus.GRADED:
             flash("Only graded answer sheets can be overridden.", "error")
             return redirect(url_for("web.review_page", sheet_id=sheet_id))
 
-        score = request.form.get("score")
-        feedback = request.form.get("feedback")
+        # Update per-question scores and feedback
+        question_nos = request.form.getlist("question_no")
+        updated_scores = []
 
-        try:
-            score_val = float(score)
-        except (TypeError, ValueError):
-            flash("Score must be a number.", "error")
+        for q_no_str in question_nos:
+            qe = next(
+                (x for x in evaluation.question_scores if str(x.question_no) == q_no_str),
+                None,
+            )
+            if qe is None:
+                continue
+
+            score_field = f"score_{q_no_str}"
+            feedback_field = f"feedback_{q_no_str}"
+            score_raw = request.form.get(score_field)
+            try:
+                score_val = float(score_raw)
+            except (TypeError, ValueError):
+                flash(f"Score for question {q_no_str} must be a number.", "error")
+                return render_template(
+                    "review.html",
+                    sheet=sheet,
+                    extracted=extracted,
+                    evaluation=evaluation,
+                    per_question_details=per_question_details,
+                    file_url=url_for(
+                        "web.uploaded_file",
+                        filename=os.path.basename(sheet.file_path),
+                    ),
+                )
+
+            qe.score = score_val
+            qe.feedback = request.form.get(feedback_field) or None
+            updated_scores.append(score_val)
+
+        if not updated_scores:
+            flash("No question scores were updated.", "error")
             return render_template(
                 "review.html",
                 sheet=sheet,
                 extracted=extracted,
                 evaluation=evaluation,
+                per_question_details=per_question_details,
                 file_url=url_for(
-                    "web.uploaded_file", filename=os.path.basename(sheet.file_path)
+                    "web.uploaded_file",
+                    filename=os.path.basename(sheet.file_path),
                 ),
             )
 
-        evaluation.score = score_val
-        if feedback:
-            evaluation.feedback = feedback
+        # Recompute overall score as average of question scores
+        final_score = round(sum(updated_scores) / len(updated_scores), 2)
+        evaluation.score = final_score
+        evaluation.feedback = (
+            evaluation.feedback or ""
+        ) + " (Adjusted via question-wise review.)"
         evaluation.evaluated_on = datetime.utcnow()
         sheet.status = AnswerSheetStatus.REVIEWED
         db.session.commit()
 
-        flash("Score overridden and sheet marked as Reviewed.", "success")
+        flash("Question-wise scores updated and sheet marked as Reviewed.", "success")
         return redirect(url_for("web.teacher_dashboard"))
 
     file_url = url_for("web.uploaded_file", filename=os.path.basename(sheet.file_path))
@@ -515,6 +578,7 @@ def review_page(sheet_id: int):
         sheet=sheet,
         extracted=extracted,
         evaluation=evaluation,
+        per_question_details=per_question_details,
         file_url=file_url,
     )
 
@@ -526,7 +590,7 @@ def uploaded_file(filename: str):
     return send_from_directory(upload_folder, filename)
 
 
-@web_bp.route("/student/report")
+@web_bp.route("/student/report", methods=["GET", "POST"])
 @login_required_view
 @role_required_view({UserRole.STUDENT})
 def student_report():
@@ -549,8 +613,141 @@ def student_report():
         )
         return render_template("student_report.html", student=None, reports=[])
 
+    # If this is a POST, handle inline updates to course/semester first
+    if request.method == "POST":
+        course = (request.form.get("course") or "").strip()
+        semester = (request.form.get("semester") or "").strip()
+
+        if not course or not semester:
+            flash("Course and semester cannot be empty.", "error")
+        else:
+            student.course = course
+            student.semester = semester
+            db.session.commit()
+            flash("Details updated successfully.", "success")
+
+        return redirect(url_for("web.student_report"))
+
+    # Ensure reports exist for any reviewed sheets for this student
+    reviewed_sheets = (
+        AnswerSheet.query.filter_by(
+            student_id=student.student_id,
+            status=AnswerSheetStatus.REVIEWED,
+        )
+        .order_by(AnswerSheet.exam_id.asc(), AnswerSheet.sheet_id.asc())
+        .all()
+    )
+
+    sheets_by_exam = {}
+    for sheet in reviewed_sheets:
+        sheets_by_exam.setdefault(sheet.exam_id, []).append(sheet)
+
+    for exam_id, sheets in sheets_by_exam.items():
+        existing = Report.query.filter_by(student_id=student.student_id, exam_id=exam_id).first()
+        if existing is not None:
+            continue
+
+        scores = []
+        remarks_parts = []
+        for sheet in sheets:
+            extracted = sheet.extracted_text
+            if not extracted or not extracted.evaluation:
+                continue
+            eval_obj: Evaluation = extracted.evaluation
+            scores.append(eval_obj.score)
+            if eval_obj.feedback:
+                remarks_parts.append(f"Sheet {sheet.sheet_id}: {eval_obj.feedback}")
+
+        if not scores:
+            continue
+
+        total_score = round(sum(scores) / len(scores), 2)
+        remarks = " \n".join(remarks_parts) if remarks_parts else None
+
+        new_report = Report(
+            student_id=student.student_id,
+            exam_id=exam_id,
+            total_score=total_score,
+            remarks=remarks,
+            generated_on=datetime.utcnow(),
+        )
+        db.session.add(new_report)
+
+    if sheets_by_exam:
+        db.session.commit()
+
     reports = Report.query.filter_by(student_id=student.student_id).all()
     return render_template("student_report.html", student=student, reports=reports)
+
+
+@web_bp.route("/student/report/<int:exam_id>")
+@login_required_view
+@role_required_view({UserRole.STUDENT})
+def student_exam_report(exam_id: int):
+    """Detailed question-wise report for a single exam for the logged-in student."""
+
+    user = session.get("user")
+    student_id = user.get("student_id")
+    student = None
+    if student_id is not None:
+        try:
+            student = Student.query.get(int(student_id))
+        except (TypeError, ValueError):
+            student = None
+
+    if student is None:
+        flash(
+            "No student record linked to this user. Ask admin/teacher to create one.",
+            "error",
+        )
+        return redirect(url_for("web.student_report"))
+
+    report = Report.query.filter_by(student_id=student.student_id, exam_id=exam_id).first()
+    if report is None:
+        flash("No report available for this exam.", "error")
+        return redirect(url_for("web.student_report"))
+
+    exam = report.exam
+
+    # Pick the latest reviewed sheet for this student and exam
+    sheet = (
+        AnswerSheet.query.filter_by(
+            student_id=student.student_id,
+            exam_id=exam_id,
+            status=AnswerSheetStatus.REVIEWED,
+        )
+        .order_by(AnswerSheet.sheet_id.desc())
+        .first()
+    )
+
+    per_question_details = []
+    evaluation = None
+    if sheet is not None and sheet.extracted_text is not None:
+        extracted = sheet.extracted_text
+        evaluation = extracted.evaluation
+        if evaluation is not None:
+            answers_by_q = {
+                q_no: ans for q_no, ans in split_numbered_answers(extracted.cleaned_text)
+            }
+            for qe in sorted(evaluation.question_scores, key=lambda x: x.question_no):
+                per_question_details.append(
+                    {
+                        "question_no": qe.question_no,
+                        "answer_text": answers_by_q.get(qe.question_no, ""),
+                        "score": qe.score,
+                        "feedback": qe.feedback or "",
+                    }
+                )
+
+    return render_template(
+        "student_exam_detail.html",
+        student=student,
+        exam=exam,
+        report=report,
+        sheet=sheet,
+        evaluation=evaluation,
+        per_question_details=per_question_details,
+    )
 
 
 @web_bp.route("/teacher/report/<int:student_id>/<int:exam_id>")

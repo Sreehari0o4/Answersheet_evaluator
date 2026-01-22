@@ -18,9 +18,18 @@ def run_ocr(file_path: str) -> tuple[str, float]:
     NOTE: Phase I implementation is a stub. It does not inspect the
     file at ``file_path``; it always returns the same dummy text and
     a fixed confidence score. Replace this with real OCR in Phase II.
+
+    For testing the question-wise evaluation pipeline, this returns
+    a few numbered answers so splitting by question number can be
+    verified end-to-end.
     """
     _ = file_path  # unused in mock
-    return "This is dummy extracted text", 0.92
+    dummy_text = (
+        "1. This is the first dummy answer about photosynthesis and how plants make food.\n"
+        "2. This is the second dummy answer describing Newton's laws of motion in simple words.\n"
+        "3. This is the third dummy answer where the student writes about their favourite subject.\n"
+    )
+    return dummy_text, 0.95
 
 
 @ocr_bp.post("/run/<int:sheet_id>")

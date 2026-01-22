@@ -139,6 +139,21 @@
             color: #0f172a;
         }
 
+        .info-input {
+            width: 100%;
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            font-size: 14px;
+            color: #0f172a;
+        }
+
+        .info-input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.2);
+        }
+
         /* Table Styling */
         .table-container {
             overflow-x: auto; /* Responsive scroll */
@@ -186,6 +201,24 @@
             padding: 20px;
         }
 
+        .primary-btn {
+            display: inline-block;
+            padding: 8px 18px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #ffffff;
+            background-color: var(--primary-color);
+            border-radius: 999px;
+            border: none;
+            cursor: pointer;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+        }
+
+        .primary-btn:hover {
+            background-color: var(--primary-hover);
+        }
+
     </style>
 </head>
 <body>
@@ -209,28 +242,33 @@
 
         {% if student %}
             <h2>Student Info</h2>
-            <div class="info-grid">
-                <div class="info-item">
-                    <label>Student ID</label>
-                    <span>{{ student.student_id }}</span>
+            <form method="post" style="margin-bottom: 0;">
+                <div class="info-grid">
+                    <div class="info-item">
+                        <label>Student ID</label>
+                        <span>{{ student.student_id }}</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Name</label>
+                        <span>{{ student.name }}</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Roll Number</label>
+                        <span>{{ student.roll_no }}</span>
+                    </div>
+                    <div class="info-item">
+                        <label>Course</label>
+                        <input type="text" name="course" class="info-input" value="{{ student.course }}" required>
+                    </div>
+                    <div class="info-item">
+                        <label>Semester</label>
+                        <input type="text" name="semester" class="info-input" value="{{ student.semester }}" required>
+                    </div>
                 </div>
-                <div class="info-item">
-                    <label>Name</label>
-                    <span>{{ student.name }}</span>
+                <div style="margin-top: 12px; text-align: right;">
+                    <button type="submit" class="primary-btn">Update Details</button>
                 </div>
-                <div class="info-item">
-                    <label>Roll Number</label>
-                    <span>{{ student.roll_no }}</span>
-                </div>
-                <div class="info-item">
-                    <label>Course</label>
-                    <span>{{ student.course }}</span>
-                </div>
-                <div class="info-item">
-                    <label>Semester</label>
-                    <span>{{ student.semester }}</span>
-                </div>
-            </div>
+            </form>
 
             <h2>Reports</h2>
             <div class="table-container">
@@ -239,19 +277,21 @@
                         <tr>
                             <th>Exam</th>
                             <th>Total Score</th>
-                            <th>Remarks</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for report in reports %}
                             <tr>
-                                <td>{{ report.exam.subject if report.exam else report.exam_id }}</td>
+                                <td>
+                                    <a href="{{ url_for('web.student_exam_report', exam_id=report.exam_id) }}" style="color:#1d4ed8; font-weight:600; text-decoration:none;">
+                                        {{ report.exam.subject if report.exam else report.exam_id }}
+                                    </a>
+                                </td>
                                 <td><strong>{{ report.total_score }}</strong></td>
-                                <td>{{ report.remarks }}</td>
                             </tr>
                         {% else %}
                             <tr>
-                                <td colspan="3" class="empty-text">No reports available.</td>
+                                <td colspan="2" class="empty-text">No reports available.</td>
                             </tr>
                         {% endfor %}
                     </tbody>

@@ -97,6 +97,21 @@ class Evaluation(db.Model):
     )
 
 
+class QuestionEvaluation(db.Model):
+    __tablename__ = "question_evaluations"
+
+    id = db.Column(db.Integer, primary_key=True)
+    eval_id = db.Column(db.Integer, db.ForeignKey("evaluations.eval_id"), nullable=False)
+    question_no = db.Column(db.Integer, nullable=False)
+    score = db.Column(db.Float, nullable=False)
+    feedback = db.Column(db.Text, nullable=True)
+
+    evaluation = db.relationship(
+        "Evaluation",
+        backref=db.backref("question_scores", cascade="all, delete-orphan"),
+    )
+
+
 class Report(db.Model):
     __tablename__ = "reports"
 

@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Report - {{ exam.subject if exam else exam_id }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --bg-start: #1e3a8a;
+            --bg-end: #0f172a;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-sub: #475569;
+            --primary-color: #1d4ed8;
+            --primary-hover: #1e40af;
+            --border-color: #cbd5e1;
+            --table-header-bg: #eff6ff;
+            --info-box-bg: #f8fafc;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding: 40px 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 900px;
+            padding: 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0,0,0,0.3), 0 10px 10px -5px rgba(0,0,0,0.2);
+        }
+
+        .header-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 800;
+            color: #1e3a8a;
+            letter-spacing: -0.5px;
+        }
+
+        .back-link {
+            font-size: 13px;
+            font-weight: 600;
+            color: #94a3b8;
+            text-decoration: none;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .back-link:hover { color: var(--primary-color); }
+
+        h2 {
+            font-size: 16px;
+            font-weight: 700;
+            color: #1e293b;
+            margin-top: 28px;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 3px solid var(--primary-color);
+            display: inline-block;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            background-color: var(--info-box-bg);
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+        }
+        .info-item label {
+            display: block;
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: #64748b;
+            margin-bottom: 4px;
+            letter-spacing: 0.5px;
+        }
+        .info-item span {
+            display: block;
+            font-size: 15px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .table-container {
+            overflow-x: auto;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            margin-top: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            text-align: left;
+        }
+
+        thead { background-color: var(--table-header-bg); }
+
+        th {
+            padding: 12px 14px;
+            font-weight: 700;
+            color: #1e3a8a;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        td {
+            padding: 12px 14px;
+            color: #334155;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background-color: #f8fafc; }
+
+        .empty-text {
+            color: #94a3b8;
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <div class="header-row">
+            <a href="{{ url_for('web.student_report') }}" class="back-link">← Back to all reports</a>
+            <h1>{{ exam.subject if exam else 'Exam Report' }}</h1>
+        </div>
+
+        {% if student %}
+            <div class="info-grid">
+                <div class="info-item">
+                    <label>Student</label>
+                    <span>{{ student.name }} ({{ student.roll_no }})</span>
+                </div>
+                <div class="info-item">
+                    <label>Exam</label>
+                    <span>{{ exam.subject if exam else report.exam_id }}</span>
+                </div>
+                <div class="info-item">
+                    <label>Total Score</label>
+                    <span>{{ report.total_score }}</span>
+                </div>
+                <div class="info-item">
+                    <label>Status</label>
+                    <span>{{ sheet.status.value if sheet else 'Not Reviewed' }}</span>
+                </div>
+            </div>
+
+            <h2>Overall Remarks</h2>
+            {% if report.remarks %}
+                <p style="font-size:14px; line-height:1.6; color:var(--text-sub);">
+                    {{ report.remarks }}
+                </p>
+            {% else %}
+                <p class="empty-text">No remarks recorded for this exam.</p>
+            {% endif %}
+
+            <h2>Question-wise Evaluation</h2>
+            {% if per_question_details %}
+                <div class="table-container">
+                    <table cellspacing="0">
+                        <thead>
+                            <tr>
+                                <th>Q.No</th>
+                                <th>Answer (excerpt)</th>
+                                <th>Score</th>
+                                <th>Teacher Comment</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in per_question_details %}
+                                <tr>
+                                    <td>{{ item.question_no }}</td>
+                                    <td>{{ item.answer_text[:160] }}{% if item.answer_text|length > 160 %}...{% endif %}</td>
+                                    <td><strong>{{ '%.2f'|format(item.score) }}</strong></td>
+                                    <td>{{ item.feedback }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="empty-text">Detailed question-wise marks are not available for this exam yet.</p>
+            {% endif %}
+        {% else %}
+            <p class="empty-text">No student record linked to this account.</p>
+        {% endif %}
+    </div>
+
+</body>
+</html>

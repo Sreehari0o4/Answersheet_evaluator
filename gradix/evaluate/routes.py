@@ -10,8 +10,10 @@ from ..models import (
     AnswerSheetStatus,
     Evaluation,
     ExtractedText,
+    QuestionEvaluation,
     UserRole,
 )
+from ..preprocess.routes import split_numbered_answers
 from ..rbac import role_required
 
 
@@ -27,6 +29,61 @@ def semantic_score(student_text: str, model_answer: str) -> float:
     """
     _ = (student_text, model_answer)
     return 0.78
+
+
+def evaluate_text_by_questions(cleaned_text: str, model_answer: str) -> tuple[float, str, list[dict]]:
+    """Compute a mock evaluation using per-question segments.
+
+    Returns a tuple of (final_score, feedback_text, per_question_details).
+    Each item in per_question_details is a dict with keys:
+    ``question_no``, ``answer_text``, and ``semantic``.
+    """
+
+    segments = split_numbered_answers(cleaned_text)
+
+    question_details: list[dict] = []
+    if segments:
+        semantic_scores = []
+        for q_no, ans_text in segments:
+            sem = semantic_score(ans_text, model_answer)
+            semantic_scores.append(sem)
+            question_details.append(
+                {
+                    "question_no": q_no,
+                    "answer_text": ans_text,
+                    "score": sem,
+                }
+            )
+        semantic_overall = sum(semantic_scores) / len(semantic_scores)
+    else:
+        sem = semantic_score(cleaned_text, model_answer)
+        semantic_overall = sem
+        question_details.append(
+            {
+                "question_no": 1,
+                "answer_text": cleaned_text,
+                "score": sem,
+            }
+        )
+
+    # Mock component scores (same as before but driven by semantic_overall)
+    keyword_score = 0.80
+    grammar_score = 0.90
+
+    final_score = round((semantic_overall + keyword_score + grammar_score) / 3.0, 2)
+
+    per_q_lines = [
+        f"Q{qd['question_no']}: {qd['score']:.2f}" for qd in question_details
+    ]
+    per_q_text = "; ".join(per_q_lines)
+
+    feedback = (
+        f"Per-question semantic: {per_q_text}. "
+        f"Overall semantic: {semantic_overall:.2f}, Keyword: {keyword_score:.2f}, "
+        f"Grammar: {grammar_score:.2f}. Final score: {final_score:.2f}."
+    )
+
+    return final_score, feedback, question_details
 
 
 @evaluate_bp.post("/<int:sheet_id>")
@@ -61,17 +118,9 @@ def evaluate_sheet(sheet_id: int):
             HTTPStatus.BAD_REQUEST,
         )
 
-    # Mock component scores (all values are dummy for Phase I)
-    semantic = semantic_score(extracted.cleaned_text, model_answer)
-    keyword_score = 0.80
-    grammar_score = 0.90
-
-    # Simple weighted average (equal weights for mock)
-    final_score = round((semantic + keyword_score + grammar_score) / 3.0, 2)
-
-    feedback = (
-        f"Semantic: {semantic:.2f}, Keyword: {keyword_score:.2f}, "
-        f"Grammar: {grammar_score:.2f}. Final score: {final_score:.2f}."
+    final_score, feedback, per_q = evaluate_text_by_questions(
+        extracted.cleaned_text,
+        model_answer,
     )
 
     evaluation = Evaluation.query.filter_by(text_id=extracted.text_id).first()
@@ -84,11 +133,31 @@ def evaluate_sheet(sheet_id: int):
             evaluated_on=datetime.utcnow(),
         )
         db.session.add(evaluation)
+        db.session.flush()
     else:
         evaluation.model_answer_ref = model_answer
         evaluation.score = final_score
         evaluation.feedback = feedback
         evaluation.evaluated_on = datetime.utcnow()
+        db.session.flush()
+
+    # Upsert per-question evaluations linked to this evaluation
+    existing_q = {
+        (qe.question_no): qe for qe in evaluation.question_scores
+    }
+    for item in per_q:
+        q_no = int(item["question_no"])
+        q_score = float(item["score"])
+        qe = existing_q.get(q_no)
+        if qe is None:
+            qe = QuestionEvaluation(
+                eval_id=evaluation.eval_id,
+                question_no=q_no,
+                score=q_score,
+            )
+            db.session.add(qe)
+        else:
+            qe.score = q_score
 
     sheet.status = AnswerSheetStatus.GRADED
 
