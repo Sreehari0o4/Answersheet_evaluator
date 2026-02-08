@@ -14,8 +14,13 @@
             
             --card-bg: #ffffff;
             --text-main: #0f172a; 
+        .back-link:hover {
+            color: var(--primary-color);
+            transform: translateX(-2px);
+        }
             --text-sub: #475569;  
             
+        <a href="{{ url_for('web.evaluated_students', exam_id=sheet.exam_id) }}" class="back-link">&larr; Back to Evaluated Students</a>
             /* Stronger Accent Colors */
             --primary-color: #1d4ed8; /* Strong Blue */
             --primary-hover: #1e40af; /* Darker Blue */

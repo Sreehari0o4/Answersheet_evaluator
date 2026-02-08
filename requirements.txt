@@ -3,3 +3,10 @@ Flask-SQLAlchemy==3.1.1
 Flask-JWT-Extended==4.6.0
 bcrypt==4.2.0
 mysql-connector-python==9.0.0
+selenium==4.27.1
+easyocr==1.7.1
+requests==2.32.3
+transformers==4.47.0
+Pillow==12.1.0
+language-tool-python==2.8.1
+python-dotenv==1.0.1

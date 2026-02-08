@@ -347,6 +347,75 @@ def evaluated_students():
 @role_required_view({UserRole.TEACHER})
 def upload_page():
     if request.method == "POST":
+        action = request.form.get("action") or "extract"
+
+        # If the user clicked Evaluate after extracting text, we will
+        # receive an existing sheet_id and only need to run evaluation.
+        if action == "evaluate" and request.form.get("sheet_id"):
+            try:
+                sheet_id_int = int(request.form.get("sheet_id"))
+            except (TypeError, ValueError):
+                flash("Invalid sheet id for evaluation.", "error")
+                exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+                return render_template("upload.html", exams=exams)
+
+            sheet = AnswerSheet.query.get(sheet_id_int)
+            if sheet is None or sheet.extracted_text is None:
+                flash("No extracted text found for this sheet. Please extract again.", "error")
+                exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+                return render_template("upload.html", exams=exams)
+
+            exam = sheet.exam
+            extracted = sheet.extracted_text
+
+            model_answer = exam.rubric_details or "Reference answer not provided."
+            final_score, feedback, per_q = evaluate_text_by_questions(
+                extracted.cleaned_text,
+                model_answer,
+            )
+
+            # Create or update evaluation
+            evaluation = extracted.evaluation
+            if evaluation is None:
+                evaluation = Evaluation(
+                    text_id=extracted.text_id,
+                    model_answer_ref=model_answer,
+                    score=final_score,
+                    feedback=feedback,
+                    evaluated_on=datetime.utcnow(),
+                )
+                db.session.add(evaluation)
+                db.session.flush()
+            else:
+                evaluation.model_answer_ref = model_answer
+                evaluation.score = final_score
+                evaluation.feedback = feedback
+                evaluation.evaluated_on = datetime.utcnow()
+
+                # Clear existing question scores
+                for qs in list(evaluation.question_scores):
+                    db.session.delete(qs)
+
+            # Store per-question evaluations
+            from .models import QuestionEvaluation
+
+            for item in per_q:
+                q_no = int(item["question_no"])
+                q_score = float(item["score"])
+                qe = QuestionEvaluation(
+                    eval_id=evaluation.eval_id,
+                    question_no=q_no,
+                    score=q_score,
+                )
+                db.session.add(qe)
+
+            sheet.status = AnswerSheetStatus.GRADED
+            db.session.commit()
+
+            flash("Answer sheet evaluated.", "success")
+            return redirect(url_for("web.review_page", sheet_id=sheet.sheet_id))
+
+        # Otherwise we are in the Extract Text step: upload + OCR only.
         student_name = (request.form.get("student_name") or "").strip()
         roll_no = (request.form.get("roll_no") or "").strip()
         exam_id = request.form.get("exam_id")
@@ -418,8 +487,48 @@ def upload_page():
         db.session.add(sheet)
         db.session.flush()  # get sheet_id
 
-        # Run mocked OCR and preprocessing, then evaluation
-        raw_text, confidence = run_ocr(full_path)
+        # Run OCR via Scripily first (if configured), otherwise fall back to
+        # the existing local OCR pipeline. Evaluation happens later.
+        raw_text = ""
+        confidence = 0.0
+
+        use_scripily = os.environ.get("USE_SCRIPILY", "").lower() in {"1", "true", "yes"}
+        if use_scripily:
+            try:  # pragma: no cover - depends on external API
+                from scripily_client import (
+                    ScripilyConfigError,
+                    extract_text as scripily_extract,
+                )
+
+                public_base = os.environ.get("SCRIPILY_PUBLIC_BASE_URL", "").rstrip("/")
+                if not public_base:
+                    raise ScripilyConfigError(
+                        "SCRIPILY_PUBLIC_BASE_URL not set; cannot build public image URL for Scripily.",
+                    )
+
+                rel_path = sheet.file_path.replace("\\", "/").lstrip("/")
+                image_url = f"{public_base}/{rel_path}"
+                current_app.logger.info("Attempting Scripily OCR for URL: %s", image_url)
+                s_text = scripily_extract(image_url)
+                if s_text:
+                    raw_text = s_text
+                    confidence = 0.98
+                else:
+                    raise RuntimeError("Empty text from Scripily")
+            except ScripilyConfigError as exc:
+                current_app.logger.warning(
+                    "Scripily misconfigured, falling back to local OCR: %s",
+                    exc,
+                )
+            except Exception as exc:  # noqa: BLE001
+                current_app.logger.exception(
+                    "Scripily OCR failed, falling back to local OCR: %s",
+                    exc,
+                )
+
+        if not raw_text:
+            raw_text, confidence = run_ocr(full_path)
+
         cleaned_text = preprocess_text(raw_text)
 
         extracted = ExtractedText(
@@ -429,42 +538,18 @@ def upload_page():
             extraction_confidence=confidence,
         )
         db.session.add(extracted)
-        db.session.flush()
 
-        model_answer = exam.rubric_details or "Reference answer not provided."
-        final_score, feedback, per_q = evaluate_text_by_questions(
-            cleaned_text,
-            model_answer,
-        )
-
-        evaluation = Evaluation(
-            text_id=extracted.text_id,
-            model_answer_ref=model_answer,
-            score=final_score,
-            feedback=feedback,
-            evaluated_on=datetime.utcnow(),
-        )
-        db.session.add(evaluation)
-        db.session.flush()
-
-        # Store per-question evaluations
-        from .models import QuestionEvaluation
-
-        for item in per_q:
-            q_no = int(item["question_no"])
-            q_score = float(item["score"])
-            qe = QuestionEvaluation(
-                eval_id=evaluation.eval_id,
-                question_no=q_no,
-                score=q_score,
-            )
-            db.session.add(qe)
-
-        sheet.status = AnswerSheetStatus.GRADED
         db.session.commit()
 
-        flash("Answer sheet uploaded and auto-evaluated (mock).", "success")
-        return redirect(url_for("web.teacher_dashboard"))
+        flash("Text extracted successfully. You can now run evaluation.", "success")
+
+        exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+        return render_template(
+            "upload.html",
+            exams=exams,
+            sheet=sheet,
+            extracted=extracted,
+        )
 
     exams = Exam.query.order_by(Exam.exam_id.asc()).all()
     return render_template("upload.html", exams=exams)
@@ -584,7 +669,6 @@ def review_page(sheet_id: int):
 
 
 @web_bp.route("/uploads/<path:filename>")
-@login_required_view
 def uploaded_file(filename: str):
     upload_folder = current_app.config["UPLOAD_FOLDER"]
     return send_from_directory(upload_folder, filename)

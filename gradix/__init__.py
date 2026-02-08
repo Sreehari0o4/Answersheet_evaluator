@@ -1,4 +1,7 @@
 from flask import Flask
+import os
+
+from dotenv import load_dotenv
 
 from .config import Config
 from .extensions import db, jwt
@@ -17,6 +20,11 @@ from .web import web_bp
 
 
 def create_app() -> Flask:
+    # Load environment variables from a local .env file (if present).
+    # This lets you keep secrets such as API keys out of the code.
+    env_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+    load_dotenv(env_path)
+
     app = Flask(__name__)
     app.config.from_object(Config)
 
