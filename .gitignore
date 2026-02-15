@@ -1,0 +1,10 @@
+# Ignore environment files
+.env
+.env.*
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local config and instance data
+instance/
