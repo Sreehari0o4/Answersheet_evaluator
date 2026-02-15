@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import datetime
 from functools import wraps
 
@@ -22,6 +23,7 @@ from .models import (
     AnswerSheetStatus,
     Evaluation,
     Exam,
+    ExamQuestion,
     ExtractedText,
     Report,
     Student,
@@ -193,7 +195,7 @@ def create_exam_page():
     if request.method == "POST":
         subject = (request.form.get("subject") or "").strip()
         max_marks = request.form.get("max_marks")
-        rubric_details = request.form.get("rubric_details") or None
+        total_questions = request.form.get("total_questions")
 
         errors = []
         if not subject:
@@ -207,19 +209,119 @@ def create_exam_page():
             errors.append("Max marks must be a positive integer.")
             max_marks_int = None
 
+        # Validate total number of questions
+        try:
+            total_questions_int = int(total_questions) if total_questions is not None else 0
+            if total_questions_int <= 0:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors.append("Total number of questions must be a positive integer.")
+            total_questions_int = 0
+
+        questions: list[dict] = []
+        if total_questions_int > 0:
+            for i in range(1, total_questions_int + 1):
+                q_no_raw = request.form.get(f"question_no_{i}") or str(i)
+                try:
+                    q_no = int(q_no_raw)
+                except (TypeError, ValueError):
+                    q_no = i
+
+                q_text = (request.form.get(f"question_text_{i}") or "").strip()
+                a_text = (request.form.get(f"answer_text_{i}") or "").strip()
+                marks_raw = request.form.get(f"marks_{i}")
+
+                try:
+                    marks_val = float(marks_raw) if marks_raw is not None else None
+                    if marks_val is not None and marks_val <= 0:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    errors.append(f"Question {i}: marks must be a positive number.")
+                    marks_val = None
+
+                if not q_text or not a_text:
+                    errors.append(
+                        f"Question {i}: question text and answer are required."
+                    )
+                    continue
+
+                questions.append(
+                    {
+                        "question_no": q_no,
+                        "question_text": q_text,
+                        "answer_text": a_text,
+                        "marks": marks_val,
+                    }
+                )
+
+        if total_questions_int > 0 and not questions:
+            errors.append("At least one complete question (with answer) is required.")
+
         if errors:
             for e in errors:
                 flash(e, "error")
             return render_template("create_exam.html")
 
-        exam = Exam(subject=subject, max_marks=max_marks_int, rubric_details=rubric_details)
+        exam = Exam(subject=subject, max_marks=max_marks_int)
         db.session.add(exam)
+        db.session.flush()
+
+        rubric_parts: list[str] = []
+        for item in questions:
+            eq = ExamQuestion(
+                exam_id=exam.exam_id,
+                question_no=item["question_no"],
+                question_text=item["question_text"],
+                answer_text=item["answer_text"],
+                marks=item["marks"],
+            )
+            db.session.add(eq)
+            rubric_parts.append(
+                (
+                    f"Q{item['question_no']}"
+                    + (f" ({item['marks']} marks)" if item["marks"] is not None else "")
+                    + f". {item['question_text']}\nAnswer: {item['answer_text']}"
+                )
+            )
+
+        if rubric_parts:
+            exam.rubric_details = "\n\n".join(rubric_parts)
+
         db.session.commit()
 
         flash("Exam created successfully.", "success")
         return redirect(url_for("web.teacher_dashboard"))
 
     return render_template("create_exam.html")
+
+
+@web_bp.route("/teacher/exam/<int:exam_id>")
+@login_required_view
+@role_required_view({UserRole.TEACHER, UserRole.ADMIN})
+def view_exam(exam_id: int):
+    exam = Exam.query.get_or_404(exam_id)
+    questions = (
+        ExamQuestion.query.filter_by(exam_id=exam.exam_id)
+        .order_by(ExamQuestion.question_no.asc())
+        .all()
+    )
+    return render_template("exam_detail.html", exam=exam, questions=questions)
+
+
+@web_bp.route("/teacher/exam/<int:exam_id>/delete", methods=["POST"])
+@login_required_view
+@role_required_view({UserRole.TEACHER, UserRole.ADMIN})
+def delete_exam_view(exam_id: int):
+    from .exam.routes import _delete_exam_with_children
+
+    exam = Exam.query.get_or_404(exam_id)
+
+    # Remove exam and all related data (questions, sheets, reports)
+    _delete_exam_with_children(exam)
+    db.session.commit()
+
+    flash("Exam and related data deleted successfully.", "success")
+    return redirect(url_for("web.teacher_dashboard"))
 
 
 @web_bp.route("/teacher/students", methods=["GET", "POST"])
@@ -368,18 +470,136 @@ def upload_page():
             exam = sheet.exam
             extracted = sheet.extracted_text
 
-            model_answer = exam.rubric_details or "Reference answer not provided."
-            final_score, feedback, per_q = evaluate_text_by_questions(
-                extracted.cleaned_text,
-                model_answer,
+            # Use numbered segments from the raw OCR text so that
+            # question numbers aren't lost by grammar correction.
+            segments = split_numbered_answers(extracted.raw_text)
+
+            # If the exam has structured questions (with marks), prefer a
+            # Gemini-based evaluation using the full rubric.
+            exam_questions = sorted(
+                getattr(exam, "questions", []),
+                key=lambda q: q.question_no,
             )
+
+            # Build a textual representation of the rubric for storage in
+            # Evaluation.model_answer_ref. Prefer explicit per-question
+            # text; fall back to exam.rubric_details or a generic note.
+            if exam.rubric_details:
+                model_answer_text = exam.rubric_details
+            elif exam_questions:
+                parts = [
+                    f"Q{q.question_no}. {q.question_text}\nAnswer: {q.answer_text}"
+                    for q in exam_questions
+                ]
+                model_answer_text = "\n\n".join(parts)
+            else:
+                model_answer_text = "Reference answer not provided."
+
+            final_score: float
+            feedback: str
+            per_q: list[dict]
+
+            if exam_questions:
+                answers_by_q = {q_no: ans for q_no, ans in segments}
+
+                try:  # pragma: no cover - depends on external API
+                    from gemini_ocr_client import (
+                        GeminiConfigError,
+                        evaluate_answers_with_gemini,
+                    )
+
+                    payload_items = []
+                    for eq in exam_questions:
+                        payload_items.append(
+                            {
+                                "question_no": eq.question_no,
+                                "question_text": eq.question_text,
+                                "model_answer": eq.answer_text,
+                                "max_marks": float(eq.marks) if eq.marks is not None else None,
+                                "student_answer": answers_by_q.get(eq.question_no, ""),
+                            }
+                        )
+
+                    gemini_result = evaluate_answers_with_gemini(payload_items)
+                    questions_out = gemini_result.get("questions", []) or []
+                    total_score = gemini_result.get("total_score")
+
+                    per_q = []
+                    for item in questions_out:
+                        # Robustly parse question number from Gemini output
+                        q_no_raw = item.get("question_no")
+                        q_no = None
+                        try:
+                            if isinstance(q_no_raw, (int, float)):
+                                q_no = int(q_no_raw)
+                            else:
+                                s = str(q_no_raw)
+                                m = re.search(r"\\d+", s)
+                                if m:
+                                    q_no = int(m.group(0))
+                        except (TypeError, ValueError):  # pragma: no cover - defensive
+                            q_no = None
+                        if q_no is None:
+                            continue
+                        try:
+                            q_score = float(item.get("score", 0.0))
+                        except (TypeError, ValueError):
+                            q_score = 0.0
+                        feedback_text = (item.get("feedback") or "").strip()
+                        ans_text = next(
+                            (x["student_answer"] for x in payload_items if x["question_no"] == q_no),
+                            "",
+                        )
+                        per_q.append(
+                            {
+                                "question_no": q_no,
+                                "answer_text": ans_text,
+                                "score": q_score,
+                                "feedback": feedback_text,
+                            }
+                        )
+
+                    if total_score is None:
+                        total_score = sum(p["score"] for p in per_q) if per_q else 0.0
+
+                    final_score = round(float(total_score), 2)
+                    per_q_lines = [f"Q{p['question_no']}: {p['score']:.2f}" for p in per_q]
+                    feedback = "LLM (Gemini) evaluation. " + "; ".join(per_q_lines)
+                except GeminiConfigError as exc:
+                    current_app.logger.warning(
+                        "Gemini evaluation misconfigured, falling back to heuristic scoring: %s",
+                        exc,
+                    )
+                    # Fallback: simple heuristic based on cleaned text
+                    model_answer_text = exam.rubric_details or "Reference answer not provided."
+                    final_score, feedback, per_q = evaluate_text_by_questions(
+                        extracted.cleaned_text,
+                        model_answer_text,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    current_app.logger.exception(
+                        "Gemini evaluation failed, falling back to heuristic scoring: %s",
+                        exc,
+                    )
+                    model_answer_text = exam.rubric_details or "Reference answer not provided."
+                    final_score, feedback, per_q = evaluate_text_by_questions(
+                        extracted.cleaned_text,
+                        model_answer_text,
+                    )
+            else:
+                # No structured exam questions; fall back to simple heuristic.
+                model_answer_text = exam.rubric_details or "Reference answer not provided."
+                final_score, feedback, per_q = evaluate_text_by_questions(
+                    extracted.cleaned_text,
+                    model_answer_text,
+                )
 
             # Create or update evaluation
             evaluation = extracted.evaluation
             if evaluation is None:
                 evaluation = Evaluation(
                     text_id=extracted.text_id,
-                    model_answer_ref=model_answer,
+                    model_answer_ref=model_answer_text,
                     score=final_score,
                     feedback=feedback,
                     evaluated_on=datetime.utcnow(),
@@ -387,7 +607,7 @@ def upload_page():
                 db.session.add(evaluation)
                 db.session.flush()
             else:
-                evaluation.model_answer_ref = model_answer
+                evaluation.model_answer_ref = model_answer_text
                 evaluation.score = final_score
                 evaluation.feedback = feedback
                 evaluation.evaluated_on = datetime.utcnow()
@@ -396,18 +616,58 @@ def upload_page():
                 for qs in list(evaluation.question_scores):
                     db.session.delete(qs)
 
-            # Store per-question evaluations
+            # Store per-question evaluations, aligned to the exam's questions.
             from .models import QuestionEvaluation
 
-            for item in per_q:
-                q_no = int(item["question_no"])
-                q_score = float(item["score"])
-                qe = QuestionEvaluation(
-                    eval_id=evaluation.eval_id,
-                    question_no=q_no,
-                    score=q_score,
-                )
-                db.session.add(qe)
+            exam_questions = sorted(
+                getattr(exam, "questions", []),
+                key=lambda q: q.question_no,
+            )
+
+            if exam_questions:
+                # Map OCR-numbered answers by question number
+                per_q_by_no: dict[int, dict] = {}
+                for item in per_q:
+                    try:
+                        q_no_int = int(item["question_no"])
+                    except (TypeError, ValueError):
+                        continue
+                    per_q_by_no[q_no_int] = item
+
+                for eq in exam_questions:
+                    item = per_q_by_no.get(eq.question_no)
+                    if item is not None:
+                        try:
+                            q_score = float(item["score"])
+                        except (TypeError, ValueError):
+                            q_score = 0.0
+                        feedback_text = (item.get("feedback") or "").strip() or None
+                    else:
+                        # No matching numbered answer in extracted text => unanswered
+                        q_score = 0.0
+                        feedback_text = "Unanswered"
+
+                    qe = QuestionEvaluation(
+                        eval_id=evaluation.eval_id,
+                        question_no=eq.question_no,
+                        score=q_score,
+                        feedback=feedback_text,
+                    )
+                    db.session.add(qe)
+            else:
+                # Legacy: if exam has no defined questions, fall back to OCR numbers
+                for item in per_q:
+                    try:
+                        q_no = int(item["question_no"])
+                        q_score = float(item["score"])
+                    except (TypeError, ValueError):
+                        continue
+                    qe = QuestionEvaluation(
+                        eval_id=evaluation.eval_id,
+                        question_no=q_no,
+                        score=q_score,
+                    )
+                    db.session.add(qe)
 
             sheet.status = AnswerSheetStatus.GRADED
             db.session.commit()
@@ -487,42 +747,34 @@ def upload_page():
         db.session.add(sheet)
         db.session.flush()  # get sheet_id
 
-        # Run OCR via Scripily first (if configured), otherwise fall back to
+        # Run OCR via Gemini first (if configured), otherwise fall back to
         # the existing local OCR pipeline. Evaluation happens later.
         raw_text = ""
         confidence = 0.0
 
-        use_scripily = os.environ.get("USE_SCRIPILY", "").lower() in {"1", "true", "yes"}
-        if use_scripily:
+        use_gemini = os.environ.get("USE_GEMINI", "").lower() in {"1", "true", "yes"}
+        if use_gemini:
             try:  # pragma: no cover - depends on external API
-                from scripily_client import (
-                    ScripilyConfigError,
-                    extract_text as scripily_extract,
+                from gemini_ocr_client import (
+                    GeminiConfigError,
+                    extract_text as gemini_extract,
                 )
 
-                public_base = os.environ.get("SCRIPILY_PUBLIC_BASE_URL", "").rstrip("/")
-                if not public_base:
-                    raise ScripilyConfigError(
-                        "SCRIPILY_PUBLIC_BASE_URL not set; cannot build public image URL for Scripily.",
-                    )
-
-                rel_path = sheet.file_path.replace("\\", "/").lstrip("/")
-                image_url = f"{public_base}/{rel_path}"
-                current_app.logger.info("Attempting Scripily OCR for URL: %s", image_url)
-                s_text = scripily_extract(image_url)
-                if s_text:
-                    raw_text = s_text
+                current_app.logger.info("Attempting Gemini OCR for path: %s", full_path)
+                g_text = gemini_extract(full_path)
+                if g_text:
+                    raw_text = g_text
                     confidence = 0.98
                 else:
-                    raise RuntimeError("Empty text from Scripily")
-            except ScripilyConfigError as exc:
+                    raise RuntimeError("Empty text from Gemini OCR")
+            except GeminiConfigError as exc:
                 current_app.logger.warning(
-                    "Scripily misconfigured, falling back to local OCR: %s",
+                    "Gemini misconfigured, falling back to local OCR: %s",
                     exc,
                 )
             except Exception as exc:  # noqa: BLE001
                 current_app.logger.exception(
-                    "Scripily OCR failed, falling back to local OCR: %s",
+                    "Gemini OCR failed, falling back to local OCR: %s",
                     exc,
                 )
 
@@ -572,12 +824,13 @@ def review_page(sheet_id: int):
         flash("No evaluation found for this answer sheet.", "error")
         return redirect(url_for("web.teacher_dashboard"))
 
-    # Build per-question details for display from stored question scores,
-    # using the current cleaned text only to show answer excerpts.
+    # Build per-question details for display from stored question scores.
     per_question_details = []
     if extracted is not None and evaluation is not None:
+        # Use raw OCR text for splitting so that question numbers are
+        # preserved even if later preprocessing rewrites the text.
         answers_by_q = {
-            q_no: ans for q_no, ans in split_numbered_answers(extracted.cleaned_text)
+            q_no: ans for q_no, ans in split_numbered_answers(extracted.raw_text)
         }
 
         for qe in sorted(evaluation.question_scores, key=lambda x: x.question_no):
@@ -591,8 +844,8 @@ def review_page(sheet_id: int):
             )
 
     if request.method == "POST":
-        if sheet.status != AnswerSheetStatus.GRADED:
-            flash("Only graded answer sheets can be overridden.", "error")
+        if sheet.status not in {AnswerSheetStatus.GRADED, AnswerSheetStatus.REVIEWED}:
+            flash("Only graded or reviewed answer sheets can be overridden.", "error")
             return redirect(url_for("web.review_page", sheet_id=sheet_id))
 
         # Update per-question scores and feedback
@@ -644,14 +897,34 @@ def review_page(sheet_id: int):
                 ),
             )
 
-        # Recompute overall score as average of question scores
-        final_score = round(sum(updated_scores) / len(updated_scores), 2)
+        # Recompute overall score as the sum of question scores
+        final_score = round(sum(updated_scores), 2)
         evaluation.score = final_score
         evaluation.feedback = (
             evaluation.feedback or ""
         ) + " (Adjusted via question-wise review.)"
         evaluation.evaluated_on = datetime.utcnow()
         sheet.status = AnswerSheetStatus.REVIEWED
+
+        # Ensure the per-exam report reflects the updated total score
+        report = Report.query.filter_by(
+            student_id=sheet.student_id,
+            exam_id=sheet.exam_id,
+        ).first()
+        if report is None:
+            report = Report(
+                student_id=sheet.student_id,
+                exam_id=sheet.exam_id,
+                total_score=final_score,
+                remarks=evaluation.feedback,
+                generated_on=datetime.utcnow(),
+            )
+            db.session.add(report)
+        else:
+            report.total_score = final_score
+            report.remarks = evaluation.feedback
+            report.generated_on = datetime.utcnow()
+
         db.session.commit()
 
         flash("Question-wise scores updated and sheet marked as Reviewed.", "success")
@@ -745,7 +1018,8 @@ def student_report():
         if not scores:
             continue
 
-        total_score = round(sum(scores) / len(scores), 2)
+        # Use the best (maximum) score across attempts for this exam
+        total_score = round(max(scores), 2)
         remarks = " \n".join(remarks_parts) if remarks_parts else None
 
         new_report = Report(
@@ -810,8 +1084,9 @@ def student_exam_report(exam_id: int):
         extracted = sheet.extracted_text
         evaluation = extracted.evaluation
         if evaluation is not None:
+            # Use raw OCR text so question numbers align exactly with stored scores
             answers_by_q = {
-                q_no: ans for q_no, ans in split_numbered_answers(extracted.cleaned_text)
+                q_no: ans for q_no, ans in split_numbered_answers(extracted.raw_text)
             }
             for qe in sorted(evaluation.question_scores, key=lambda x: x.question_no):
                 per_question_details.append(
@@ -845,7 +1120,7 @@ def teacher_report(student_id: int, exam_id: int):
     dashboard without providing an Authorization header.
     """
 
-    # If a report already exists, return it
+    # If a report already exists, return it / reuse it
     report = Report.query.filter_by(student_id=student_id, exam_id=exam_id).first()
     if report is None:
         # Generate only if there is at least one reviewed answer sheet
@@ -882,7 +1157,8 @@ def teacher_report(student_id: int, exam_id: int):
             flash("No evaluation scores found for reviewed sheets.", "error")
             return redirect(url_for("web.teacher_dashboard"))
 
-        total_score = round(sum(scores) / len(scores), 2)
+        # Use the best (maximum) score across attempts for this exam
+        total_score = round(max(scores), 2)
         remarks = " \n".join(remarks_parts) if remarks_parts else None
 
         report = Report(
@@ -895,13 +1171,80 @@ def teacher_report(student_id: int, exam_id: int):
         db.session.add(report)
         db.session.commit()
 
-    return jsonify(
-        {
-            "report_id": report.report_id,
-            "student_id": report.student_id,
-            "exam_id": report.exam_id,
-            "total_score": report.total_score,
-            "remarks": report.remarks,
-            "generated_on": report.generated_on.isoformat(),
-        }
+    # Build detailed per-question view based on the latest reviewed sheet
+    exam = report.exam
+    student = report.student
+    sheet = (
+        AnswerSheet.query.filter_by(
+            student_id=student_id,
+            exam_id=exam_id,
+            status=AnswerSheetStatus.REVIEWED,
+        )
+        .order_by(AnswerSheet.sheet_id.desc())
+        .first()
     )
+
+    per_question_details = []
+    evaluation = None
+    if sheet is not None and sheet.extracted_text is not None:
+        extracted = sheet.extracted_text
+        evaluation = extracted.evaluation
+        if evaluation is not None:
+            # Use raw OCR text so question numbers align exactly with stored scores
+            answers_by_q = {
+                q_no: ans
+                for q_no, ans in split_numbered_answers(extracted.raw_text)
+            }
+            for qe in sorted(evaluation.question_scores, key=lambda x: x.question_no):
+                per_question_details.append(
+                    {
+                        "question_no": qe.question_no,
+                        "answer_text": answers_by_q.get(qe.question_no, ""),
+                        "score": qe.score,
+                        "feedback": qe.feedback or "",
+                    }
+                )
+
+    return render_template(
+        "teacher_exam_report.html",
+        student=student,
+        exam=exam,
+        report=report,
+        sheet=sheet,
+        evaluation=evaluation,
+        per_question_details=per_question_details,
+    )
+
+
+@web_bp.route("/teacher/evaluation/<int:student_id>/<int:exam_id>/delete", methods=["POST"])
+@login_required_view
+@role_required_view({UserRole.TEACHER, UserRole.ADMIN})
+def delete_student_evaluation(student_id: int, exam_id: int):
+    """Remove a student's evaluation data for a specific exam.
+
+    Deletes all answer sheets for this (student, exam) pair along with
+    their extracted text, evaluations, question scores, and any
+    generated report. This lets teachers fully reset an exam's
+    evaluation for a student.
+    """
+
+    sheets = AnswerSheet.query.filter_by(student_id=student_id, exam_id=exam_id).all()
+
+    for sheet in sheets:
+        extracted = sheet.extracted_text
+        if extracted is not None:
+            evaluation = extracted.evaluation
+            if evaluation is not None:
+                db.session.delete(evaluation)
+            db.session.delete(extracted)
+
+        db.session.delete(sheet)
+
+    Report.query.filter_by(student_id=student_id, exam_id=exam_id).delete(
+        synchronize_session=False
+    )
+
+    db.session.commit()
+
+    flash("Student evaluation for this exam has been removed.", "success")
+    return redirect(url_for("web.evaluated_students", exam_id=exam_id))

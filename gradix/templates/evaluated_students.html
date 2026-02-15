@@ -185,6 +185,9 @@
                                         {% elif row.sheet.status.name == 'REVIEWED' %}
                                             <a href="{{ url_for('web.teacher_report', student_id=row.student.student_id, exam_id=row.sheet.exam_id) }}">View Report</a>
                                         {% endif %}
+                                        <form method="post" action="{{ url_for('web.delete_student_evaluation', student_id=row.student.student_id, exam_id=row.sheet.exam_id) }}" style="display:inline" onsubmit="return confirm('Remove this student\'s evaluation for this exam? This cannot be undone.');">
+                                            <button type="submit" style="margin-left:8px; padding:4px 8px; font-size:11px; border-radius:999px; border:none; background-color:#fee2e2; color:#b91c1c; cursor:pointer;">Remove</button>
+                                        </form>
                                     </td>
                                 </tr>
                             {% endfor %}

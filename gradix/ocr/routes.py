@@ -227,34 +227,25 @@ def ocr_run(sheet_id: int):
     raw_text = ""
     confidence = 0.0
 
-    # 1) Prefer Scripily cloud OCR if enabled and properly configured.
-    use_scripily = os.environ.get("USE_SCRIPILY", "").lower() in {"1", "true", "yes"}
-    if use_scripily:
+    # 1) Prefer Gemini cloud OCR if enabled and properly configured.
+    use_gemini = os.environ.get("USE_GEMINI", "").lower() in {"1", "true", "yes"}
+    if use_gemini:
         try:  # pragma: no cover - depends on external API
-            from scripily_client import ScripilyConfigError, extract_text as scripily_extract
+            from gemini_ocr_client import GeminiConfigError, extract_text as gemini_extract
 
-            public_base = os.environ.get("SCRIPILY_PUBLIC_BASE_URL", "").rstrip("/")
-            if not public_base:
-                raise ScripilyConfigError(
-                    "SCRIPILY_PUBLIC_BASE_URL not set; cannot build public image URL for Scripily."
-                )
-
-            # sheet.file_path is stored as a relative path like "uploads/<filename>".
-            rel_path = sheet.file_path.replace("\\", "/").lstrip("/")
-            image_url = f"{public_base}/{rel_path}"
-            logger.info("Attempting Scripily OCR for URL: %s", image_url)
-            s_text = scripily_extract(image_url)
-            if s_text:
-                raw_text = s_text
+            logger.info("Attempting Gemini OCR for path: %s", abs_path)
+            g_text = gemini_extract(abs_path)
+            if g_text:
+                raw_text = g_text
                 confidence = 0.98
             else:
-                raise RuntimeError("Empty text from Scripily")
-        except ScripilyConfigError as exc:
-            logger.warning("Scripily misconfigured, falling back to local OCR: %s", exc)
+                raise RuntimeError("Empty text from Gemini OCR")
+        except GeminiConfigError as exc:
+            logger.warning("Gemini misconfigured, falling back to local OCR: %s", exc)
         except Exception as exc:  # noqa: BLE001
-            logger.exception("Scripily OCR failed, falling back to local OCR: %s", exc)
+            logger.exception("Gemini OCR failed, falling back to local OCR: %s", exc)
 
-    # 2) Local OCR fallback if Scripily is disabled or failed.
+    # 2) Local OCR fallback if Gemini is disabled or failed.
     if not raw_text:
         raw_text, confidence = run_ocr(abs_path)
 

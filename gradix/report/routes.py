@@ -78,7 +78,8 @@ def get_report(student_id: int, exam_id: int):
                 HTTPStatus.BAD_REQUEST,
             )
 
-        total_score = round(sum(scores) / len(scores), 2)
+        # Use the best (maximum) score across attempts for this exam
+        total_score = round(max(scores), 2)
         remarks = " \n".join(remarks_parts) if remarks_parts else None
 
         report = Report(

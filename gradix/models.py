@@ -39,6 +39,22 @@ class Exam(db.Model):
     rubric_details = db.Column(db.Text, nullable=True)
 
 
+class ExamQuestion(db.Model):
+    __tablename__ = "exam_questions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    exam_id = db.Column(db.Integer, db.ForeignKey("exams.exam_id"), nullable=False)
+    question_no = db.Column(db.Integer, nullable=False)
+    question_text = db.Column(db.Text, nullable=False)
+    answer_text = db.Column(db.Text, nullable=False)
+    marks = db.Column(db.Float, nullable=True)
+
+    exam = db.relationship(
+        "Exam",
+        backref=db.backref("questions", cascade="all, delete-orphan"),
+    )
+
+
 class AnswerSheetStatus(str, Enum):
     PENDING = "Pending"
     GRADED = "Graded"

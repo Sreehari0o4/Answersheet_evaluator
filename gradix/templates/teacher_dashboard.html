@@ -181,6 +181,48 @@
             background-color: #f8fafc;
         }
 
+        .exam-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .exam-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+
+        .exam-link {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--primary-btn);
+            text-decoration: none;
+        }
+
+        .exam-link:hover {
+            text-decoration: underline;
+        }
+
+        .exam-delete-btn {
+            border: none;
+            background-color: #fee2e2;
+            color: #b91c1c;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 10px;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+
+        .exam-delete-btn:hover {
+            background-color: #fecaca;
+            transform: translateY(-1px);
+        }
+
         /* Tables */
         .table-container {
             overflow-x: auto;
@@ -270,7 +312,18 @@
         
         <ul class="exam-list">
             {% for exam in exams %}
-                <li><strong>{{ exam.exam_id }}</strong> - {{ exam.subject }} <span style="color:#64748b; font-size:13px;">(Max Marks: {{ exam.max_marks }})</span></li>
+                <li class="exam-item">
+                    <div>
+                        <strong>#{{ exam.exam_id }}</strong> - {{ exam.subject }}
+                        <span style="color:#64748b; font-size:13px;">(Max Marks: {{ exam.max_marks }})</span>
+                    </div>
+                    <div class="exam-actions">
+                        <a href="{{ url_for('web.view_exam', exam_id=exam.exam_id) }}" class="exam-link">View</a>
+                        <form method="post" action="{{ url_for('web.delete_exam_view', exam_id=exam.exam_id) }}" onsubmit="return confirm('Are you sure you want to delete this exam and all related data?');">
+                            <button type="submit" class="exam-delete-btn">Delete</button>
+                        </form>
+                    </div>
+                </li>
             {% else %}
                 <li style="font-style: italic; color: #94a3b8;">No exams created yet.</li>
             {% endfor %}

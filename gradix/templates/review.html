@@ -14,13 +14,7 @@
             
             --card-bg: #ffffff;
             --text-main: #0f172a; 
-        .back-link:hover {
-            color: var(--primary-color);
-            transform: translateX(-2px);
-        }
             --text-sub: #475569;  
-            
-        <a href="{{ url_for('web.evaluated_students', exam_id=sheet.exam_id) }}" class="back-link">&larr; Back to Evaluated Students</a>
             /* Stronger Accent Colors */
             --primary-color: #1d4ed8; /* Strong Blue */
             --primary-hover: #1e40af; /* Darker Blue */
@@ -274,8 +268,8 @@
 <body>
 
     <div class="card">
-        <a href="{{ url_for('web.teacher_dashboard') }}" class="back-link">
-            ← Back to Dashboard
+        <a href="{{ url_for('web.evaluated_students', exam_id=sheet.exam_id) }}" class="back-link">
+            ← Back to Evaluated Students
         </a>
 
         <h1>Review Answer Sheet <span style="color:var(--primary-color);">#{{ sheet.sheet_id }}</span></h1>
@@ -323,7 +317,7 @@
 
         <h2>Question-wise Review</h2>
         {% if per_question_details %}
-            {% if sheet.status.value == 'Graded' %}
+            {% if sheet.status.value in ['Graded', 'Reviewed'] %}
                 <form method="post">
                     <div class="table-container">
                         <table cellspacing="0" style="width:100%; border-collapse: collapse; font-size: 14px;">
@@ -384,9 +378,6 @@
                             {% endfor %}
                         </tbody>
                     </table>
-                </div>
-                <div class="status-alert">
-                    This sheet is already <strong>{{ sheet.status.value }}</strong>. Question-wise review is read-only.
                 </div>
             {% endif %}
         {% else %}

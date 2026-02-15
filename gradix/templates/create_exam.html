@@ -131,6 +131,45 @@
             margin-left: 4px;
         }
 
+        .question-block {
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 16px;
+            margin-bottom: 16px;
+            background-color: #f8fafc;
+        }
+
+        .question-header {
+            font-weight: 600;
+            color: #1e3a8a;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .form-group-inline {
+            margin-bottom: 12px;
+        }
+
+        .btn-secondary {
+            width: 100%;
+            background-color: #e2e8f0;
+            color: #0f172a;
+            font-weight: 600;
+            padding: 10px 12px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-secondary:hover {
+            background-color: #cbd5e1;
+            transform: translateY(-1px);
+        }
+
         input[type="text"], 
         input[type="number"], 
         textarea {
@@ -215,9 +254,20 @@
                 </div>
             </div>
 
+            <div class="form-row">
+                <div class="col-fixed">
+                    <label>Total Questions</label>
+                    <input type="number" name="total_questions" id="total_questions" min="1" required placeholder="e.g. 5">
+                </div>
+                <div class="col-grow">
+                    <label><span>Enter total number of questions, then click Generate.</span></label>
+                    <button type="button" class="btn-secondary" onclick="generateQuestions()">Generate Question Fields</button>
+                </div>
+            </div>
+
             <div class="form-group">
-                <label>Rubric / Model Answer <span>(Optional)</span></label>
-                <textarea name="rubric_details" placeholder="Enter guidelines for automated evaluation..."></textarea>
+                <label>Questions &amp; Model Answers <span>(Required for evaluation)</span></label>
+                <div id="questions-container"></div>
             </div>
 
             <div>
@@ -225,6 +275,45 @@
             </div>
         </form>
     </div>
+
+    <script>
+        function generateQuestions() {
+            const totalInput = document.getElementById('total_questions');
+            const container = document.getElementById('questions-container');
+
+            const n = parseInt(totalInput.value, 10);
+            container.innerHTML = '';
+
+            if (!n || n <= 0) {
+                alert('Please enter a valid number of questions.');
+                return;
+            }
+
+            for (let i = 1; i <= n; i++) {
+                const block = document.createElement('div');
+                block.className = 'question-block';
+
+                block.innerHTML = `
+                    <div class="question-header">Question ${i}</div>
+                    <input type="hidden" name="question_no_${i}" value="${i}">
+                    <div class="form-group-inline">
+                        <label>Marks</label>
+                        <input type="number" name="marks_${i}" min="0.5" step="0.5" required placeholder="e.g. 2">
+                    </div>
+                    <div class="form-group-inline">
+                        <label>Question Text</label>
+                        <textarea name="question_text_${i}" required placeholder="Enter question ${i}..."></textarea>
+                    </div>
+                    <div class="form-group-inline">
+                        <label>Answer / Model Answer</label>
+                        <textarea name="answer_text_${i}" required placeholder="Enter ideal answer for question ${i}..."></textarea>
+                    </div>
+                `;
+
+                container.appendChild(block);
+            }
+        }
+    </script>
 
 </body>
 </html>
