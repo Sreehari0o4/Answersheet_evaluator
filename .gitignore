@@ -8,3 +8,6 @@ __pycache__/
 
 # Local config and instance data
 instance/
+ 
+# Windows reserved-name artifact
+NUL

@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Select Exam for Evaluation</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-start: #1e3a8a;
+            --bg-end: #0f172a;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-sub: #475569;
+            --primary-btn: #1d4ed8;
+            --primary-btn-hover: #1e40af;
+            --border-color: #cbd5e1;
+            --table-header-bg: #eff6ff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding: 40px 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 800px;
+            padding: 36px 36px 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 20px;
+            text-decoration: none;
+            color: #94a3b8;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: color 0.2s;
+        }
+        .back-link:hover { color: var(--primary-btn); }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            color: #1e3a8a;
+        }
+
+        p.subtitle {
+            color: var(--text-sub);
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .table-container {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            overflow-x: auto;
+            margin-top: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        thead { background-color: var(--table-header-bg); }
+
+        th, td {
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            font-weight: 700;
+            color: #1e3a8a;
+        }
+
+        tr:last-child td { border-bottom: none; }
+
+        tr:hover td { background-color: #f8fafc; }
+
+        .btn-select {
+            border: none;
+            background-color: var(--primary-btn);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 14px;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+
+        .btn-select:hover {
+            background-color: var(--primary-btn-hover);
+            transform: translateY(-1px);
+        }
+
+        .empty-text {
+            padding: 18px;
+            font-size: 14px;
+            color: #94a3b8;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <a href="{{ url_for('web.teacher_dashboard') }}" class="back-link">
+            a Back to Dashboard
+        </a>
+
+        <h1>Select Exam for Evaluation</h1>
+        <p class="subtitle">Choose the exam you are evaluating now. The next page will only ask for the student roll number and answer sheet.</p>
+
+        <div class="table-container">
+            <table cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Subject</th>
+                        <th>Max Marks</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for exam in exams %}
+                        <tr>
+                            <td>{{ exam.exam_id }}</td>
+                            <td>{{ exam.subject }}</td>
+                            <td>{{ exam.max_marks }}</td>
+                            <td>
+                                <a href="{{ url_for('web.upload_page', exam_id=exam.exam_id) }}" class="btn-select">Use This Exam</a>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="4" class="empty-text">No exams available. Create an exam first.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

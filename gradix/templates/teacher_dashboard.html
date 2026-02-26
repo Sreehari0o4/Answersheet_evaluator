@@ -304,10 +304,45 @@
           {% endif %}
         {% endwith %}
 
+        {% if pending_comments and pending_comments|length > 0 %}
+            <div style="margin-bottom:24px; padding:14px 16px; border-radius:8px; border:1px solid #bfdbfe; background-color:#eff6ff;">
+                <div style="font-size:14px; font-weight:700; color:#1e3a8a; margin-bottom:8px;">
+                    Student Requests for Re-check: {{ pending_comments|length }} pending
+                </div>
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Student</th>
+                                <th>Exam</th>
+                                <th>Q.No</th>
+                                <th>Comment</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for c in pending_comments %}
+                                <tr>
+                                    <td>{{ c.student.name }} ({{ c.student.roll_no }})</td>
+                                    <td>{{ c.sheet.exam.subject }}</td>
+                                    <td>{{ c.question_no }}</td>
+                                    <td>{{ c.comment[:80] }}{% if c.comment|length > 80 %}...{% endif %}</td>
+                                    <td>
+                                        <a href="{{ url_for('web.review_page', sheet_id=c.sheet.sheet_id) }}" class="link-review">Review Sheet</a>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        {% endif %}
+
         <h2>Exams</h2>
         <div class="action-toolbar">
             <a href="{{ url_for('web.create_exam_page') }}" class="btn-action">＋ Create New Exam</a>
             <a href="{{ url_for('web.evaluated_students') }}" class="btn-action">Evaluated Students</a>
+            <a href="{{ url_for('web.manage_students') }}" class="btn-action">Manage Students</a>
         </div>
         
         <ul class="exam-list">
@@ -331,11 +366,11 @@
 
         <h2>Answer Sheets</h2>
         <div class="action-toolbar">
-            <a href="{{ url_for('web.upload_page') }}" class="btn-action btn-primary-action">
+            <a href="{{ url_for('web.select_exam_for_evaluation') }}" class="btn-action btn-primary-action">
                 <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right:6px; vertical-align: text-bottom;">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
                 </svg>
-                Upload Answer Sheet
+                Evaluate Answer Sheet
             </a>
         </div>
 

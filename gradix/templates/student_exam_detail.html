@@ -209,6 +209,81 @@
             {% else %}
                 <p class="empty-text">Detailed question-wise marks are not available for this exam yet.</p>
             {% endif %}
+            {% if sheet %}
+                {% if file_url %}
+                    <h2>Uploaded Answer Sheet</h2>
+                    <div class="table-container" style="padding:16px;">
+                        <p style="font-size:13px; color:var(--text-sub); margin-bottom:8px;">
+                            This is the answer sheet that was uploaded for this exam.
+                        </p>
+                        <p style="margin-bottom:10px;">
+                            <a href="{{ file_url }}" target="_blank" style="color:var(--primary-color); font-weight:600; text-decoration:none;">
+                                Open in new tab
+                            </a>
+                        </p>
+                        <div>
+                            {% if '.pdf' in file_url|lower %}
+                                <iframe src="{{ file_url }}" style="width:100%; height:480px; border:none; border-radius:8px; background:#0f172a;"></iframe>
+                            {% else %}
+                                <img src="{{ file_url }}" alt="Uploaded answer sheet" style="max-width:100%; border-radius:8px; display:block;">
+                            {% endif %}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <h2>Student Comments to Teacher</h2>
+                {% if existing_comments and existing_comments|length > 0 %}
+                    <div class="table-container">
+                        <table cellspacing="0">
+                            <thead>
+                                <tr>
+                                    <th>Q.No</th>
+                                    <th>Your Comment</th>
+                                    <th>Teacher Reply</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for c in existing_comments %}
+                                    <tr>
+                                        <td>{{ c.question_no }}</td>
+                                        <td>{{ c.comment }}</td>
+                                        <td>{{ teacher_feedback_by_q.get(c.question_no) or '-' }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <p class="empty-text">You have not added any comments for this exam.</p>
+                {% endif %}
+
+                {% if remaining_comment_slots > 0 %}
+                    <form method="post" style="margin-top:16px;">
+                        <div class="info-grid" style="margin-top:0;">
+                            <div class="info-item">
+                                <label for="question_no">Question Number</label>
+                                <span>
+                                    <select id="question_no" name="question_no" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; font-size:14px;">
+                                        <option value="">Select question</option>
+                                        {% for item in per_question_details %}
+                                            <option value="{{ item.question_no }}">Q{{ item.question_no }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </span>
+                            </div>
+                            <div class="info-item" style="grid-column: span 2;">
+                                <label for="comment_text">Comment ({{ remaining_comment_slots }} left)</label>
+                                <span>
+                                    <textarea id="comment_text" name="comment_text" rows="3" style="width:100%; padding:10px; border:1px solid var(--border-color); border-radius:6px; font-size:14px; resize:vertical;" placeholder="Explain why you think this question needs re-check."></textarea>
+                                </span>
+                            </div>
+                        </div>
+                        <button type="submit" style="margin-top:10px; padding:10px 16px; background-color:var(--primary-color); color:#fff; border:none; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer;">Send Comment to Teacher</button>
+                    </form>
+                {% else %}
+                    <p class="empty-text">You have already used your 2 comments for this exam.</p>
+                {% endif %}
+            {% endif %}
         {% else %}
             <p class="empty-text">No student record linked to this account.</p>
         {% endif %}

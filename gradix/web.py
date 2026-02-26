@@ -29,6 +29,7 @@ from .models import (
     Student,
     User,
     UserRole,
+    QuestionStudentComment,
 )
 from .ocr.routes import run_ocr
 from .preprocess.routes import preprocess_text, split_numbered_answers
@@ -179,11 +180,21 @@ def teacher_dashboard():
     teacher = session.get("user")
     exams = Exam.query.order_by(Exam.exam_id.asc()).all()
     sheets = AnswerSheet.query.order_by(AnswerSheet.upload_date.desc()).all()
+
+    # Pending student comments (unresolved) across all sheets
+    pending_comments = (
+        db.session.query(QuestionStudentComment)
+        .join(AnswerSheet, QuestionStudentComment.sheet_id == AnswerSheet.sheet_id)
+        .filter(QuestionStudentComment.resolved.is_(False))
+        .order_by(QuestionStudentComment.created_at.desc())
+        .all()
+    )
     return render_template(
         "teacher_dashboard.html",
         teacher=teacher,
         exams=exams,
         sheets=sheets,
+        pending_comments=pending_comments,
         AnswerSheetStatus=AnswerSheetStatus,
     )
 
@@ -228,7 +239,6 @@ def create_exam_page():
                     q_no = i
 
                 q_text = (request.form.get(f"question_text_{i}") or "").strip()
-                a_text = (request.form.get(f"answer_text_{i}") or "").strip()
                 marks_raw = request.form.get(f"marks_{i}")
 
                 try:
@@ -239,9 +249,9 @@ def create_exam_page():
                     errors.append(f"Question {i}: marks must be a positive number.")
                     marks_val = None
 
-                if not q_text or not a_text:
+                if not q_text:
                     errors.append(
-                        f"Question {i}: question text and answer are required."
+                        f"Question {i}: question text is required."
                     )
                     continue
 
@@ -249,13 +259,12 @@ def create_exam_page():
                     {
                         "question_no": q_no,
                         "question_text": q_text,
-                        "answer_text": a_text,
                         "marks": marks_val,
                     }
                 )
 
         if total_questions_int > 0 and not questions:
-            errors.append("At least one complete question (with answer) is required.")
+            errors.append("At least one question is required.")
 
         if errors:
             for e in errors:
@@ -272,7 +281,10 @@ def create_exam_page():
                 exam_id=exam.exam_id,
                 question_no=item["question_no"],
                 question_text=item["question_text"],
-                answer_text=item["answer_text"],
+                # Model answers are now optional; store an empty
+                # string instead of NULL so existing databases where
+                # answer_text is NOT NULL continue to work.
+                answer_text="",
                 marks=item["marks"],
             )
             db.session.add(eq)
@@ -280,7 +292,7 @@ def create_exam_page():
                 (
                     f"Q{item['question_no']}"
                     + (f" ({item['marks']} marks)" if item["marks"] is not None else "")
-                    + f". {item['question_text']}\nAnswer: {item['answer_text']}"
+                    + f". {item['question_text']}"
                 )
             )
 
@@ -293,6 +305,157 @@ def create_exam_page():
         return redirect(url_for("web.teacher_dashboard"))
 
     return render_template("create_exam.html")
+
+
+@web_bp.route("/teacher/exam/extract-questions", methods=["POST"])
+@login_required_view
+@role_required_view({UserRole.TEACHER, UserRole.ADMIN})
+def extract_questions_from_paper():
+    """Extract numbered questions and marks from an uploaded exam paper image.
+
+    This is used by the Create Exam page's "Update Questions" button.
+    The route returns JSON of the form::
+
+        {"questions": [{"question_no": int, "question_text": str, "marks": float|null}, ...]}
+    """
+
+    file = request.files.get("question_paper")
+    if file is None or not file.filename:
+        return jsonify({"message": "No file uploaded."}), 400
+
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    os.makedirs(upload_folder, exist_ok=True)
+
+    # Store temporarily under the same uploads root; teachers are not
+    # expected to access this file directly.
+    from uuid import uuid4
+
+    ext = (file.filename.rsplit(".", 1)[1].lower() if "." in file.filename else "png")
+    safe_name = f"question_paper_{uuid4().hex}.{ext}"
+    full_path = os.path.join(upload_folder, safe_name)
+    file.save(full_path)
+
+    try:
+        raw_text = ""
+        confidence = 0.0
+
+        use_gemini = os.environ.get("USE_GEMINI", "").lower() in {"1", "true", "yes"}
+        if use_gemini:
+            # Import Gemini helpers outside the inner try/except so
+            # the exception class is defined when referenced.
+            try:  # pragma: no cover - external API
+                from gemini_ocr_client import (
+                    GeminiConfigError,
+                    extract_text as gemini_extract,
+                )
+            except Exception as exc:  # noqa: BLE001
+                current_app.logger.warning(
+                    "Gemini import failed for question paper OCR, falling back to local OCR: %s",
+                    exc,
+                )
+            else:
+                try:  # pragma: no cover - external API
+                    current_app.logger.info(
+                        "Attempting Gemini OCR for question paper: %s", full_path
+                    )
+                    g_text = gemini_extract(full_path)
+                    if g_text:
+                        raw_text = g_text
+                        confidence = 0.98
+                    else:
+                        raise RuntimeError("Empty text from Gemini OCR")
+                except GeminiConfigError as exc:
+                    current_app.logger.warning(
+                        "Gemini misconfigured for question paper OCR, falling back to local OCR: %s",
+                        exc,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    current_app.logger.exception(
+                        "Gemini OCR failed for question paper, falling back to local OCR: %s",
+                        exc,
+                    )
+
+        if not raw_text:
+            raw_text, confidence = run_ocr(full_path)
+
+        # Re-use the same splitting logic we use for numbered answers,
+        # which expects patterns like "1.", "2)", etc.
+        segments = split_numbered_answers(raw_text)
+
+        import re
+
+        questions_out: list[dict] = []
+        for q_no, q_text in segments:
+            original_text = (q_text or "").strip()
+            if not original_text:
+                continue
+
+            text = original_text
+
+            # Try to extract marks from common patterns such as
+            # "(5 marks)", plain "(3)" at the end of the question,
+            # "[5]", "5M", etc., taking the first plausible
+            # numeric value.
+            marks_val = None
+            patterns = [
+                r"\((\d+(?:\.\d+)?)\s*marks?\)",
+                r"\((\d+(?:\.\d+)?)\)\s*$",
+                r"\[(\d+(?:\.\d+)?)\]",
+                r"(\d+(?:\.\d+)?)\s*[Mm]arks?",
+                r"(\d+(?:\.\d+)?)\s*[Mm]",
+            ]
+            for pat in patterns:
+                m = re.search(pat, text)
+                if m:
+                    try:
+                        marks_val = float(m.group(1))
+                        # Strip the matched mark fragment (e.g. "(3)"
+                        # or "(3 marks)" or "3 marks") from the
+                        # question text so the stored question is
+                        # clean.
+                        text = text[: m.start()].rstrip()
+                        break
+                    except (TypeError, ValueError):
+                        marks_val = None
+
+            # Extra heuristic for layouts where only a bare number
+            # (e.g. "3") appears in the right-hand "Marks" column,
+            # with no explicit "marks" text. We look for a trailing
+            # small integer at the end of the last non-empty line.
+            if marks_val is None:
+                lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+                if lines:
+                    last_line = lines[-1]
+                    m2 = re.search(r"(\d{1,3})\s*$", last_line)
+                    if m2:
+                        try:
+                            candidate = int(m2.group(1))
+                        except (TypeError, ValueError):
+                            candidate = None
+                        # Treat modest integers as marks, not part of
+                        # the question text (e.g. 1-50).
+                        if candidate is not None and 0 < candidate <= 50:
+                            marks_val = float(candidate)
+                            # Remove the trailing number from the
+                            # question text so the UI shows a clean
+                            # question.
+                            text = re.sub(r"\b" + re.escape(m2.group(1)) + r"\s*$", "", text).rstrip()
+
+            questions_out.append(
+                {
+                    "question_no": int(q_no),
+                    "question_text": text,
+                    "marks": marks_val,
+                }
+            )
+
+        return jsonify({"questions": questions_out, "ocr_confidence": confidence})
+    finally:
+        try:
+            if os.path.exists(full_path):
+                os.remove(full_path)
+        except OSError:
+            current_app.logger.info("Could not remove temporary question paper file: %s", full_path)
 
 
 @web_bp.route("/teacher/exam/<int:exam_id>")
@@ -328,7 +491,11 @@ def delete_exam_view(exam_id: int):
 @login_required_view
 @role_required_view({UserRole.TEACHER, UserRole.ADMIN})
 def manage_students():
-    """List students and allow teachers/admins to add new ones."""
+    """List students and allow teachers/admins to add new ones.
+
+    The page also supports simple filtering by course and semester so
+    teachers can quickly find students by department/section.
+    """
 
     if request.method == "POST":
         name = (request.form.get("name") or "").strip()
@@ -363,8 +530,60 @@ def manage_students():
             db.session.commit()
             flash("Student added successfully.", "success")
 
-    students = Student.query.order_by(Student.student_id.asc()).all()
-    return render_template("students_manage.html", students=students)
+        return redirect(url_for("web.manage_students"))
+
+    # Build filter options
+    course_filter = (request.args.get("course") or "").strip()
+    semester_filter = (request.args.get("semester") or "").strip()
+
+    query = Student.query
+    if course_filter:
+        query = query.filter(Student.course == course_filter)
+    if semester_filter:
+        query = query.filter(Student.semester == semester_filter)
+
+    students = query.order_by(Student.student_id.asc()).all()
+
+    courses = [row[0] for row in db.session.query(Student.course).distinct().order_by(Student.course.asc()).all()]
+    semesters = [row[0] for row in db.session.query(Student.semester).distinct().order_by(Student.semester.asc()).all()]
+
+    return render_template(
+        "students_manage.html",
+        students=students,
+        courses=courses,
+        semesters=semesters,
+        selected_course=course_filter,
+        selected_semester=semester_filter,
+    )
+
+
+@web_bp.route("/teacher/students/<int:student_id>/delete", methods=["POST"])
+@login_required_view
+@role_required_view({UserRole.TEACHER, UserRole.ADMIN})
+def delete_student(student_id: int):
+    """Remove a student and their related data (answer sheets, reports)."""
+
+    student = Student.query.get_or_404(student_id)
+
+    # Delete answer sheets and their nested evaluation data
+    for sheet in list(student.answer_sheets):
+        extracted = sheet.extracted_text
+        if extracted is not None:
+            evaluation = extracted.evaluation
+            if evaluation is not None:
+                db.session.delete(evaluation)
+            db.session.delete(extracted)
+
+        db.session.delete(sheet)
+
+    # Delete reports linked to this student
+    Report.query.filter_by(student_id=student.student_id).delete(synchronize_session=False)
+
+    db.session.delete(student)
+    db.session.commit()
+
+    flash("Student and related data removed.", "success")
+    return redirect(url_for("web.manage_students"))
 
 
 @web_bp.route("/teacher/evaluated-students")
@@ -482,15 +701,16 @@ def upload_page():
             )
 
             # Build a textual representation of the rubric for storage in
-            # Evaluation.model_answer_ref. Prefer explicit per-question
-            # text; fall back to exam.rubric_details or a generic note.
+            # Evaluation.model_answer_ref. Prefer any precomputed
+            # rubric text; otherwise, store a simple listing of
+            # questions (without requiring model answers).
             if exam.rubric_details:
                 model_answer_text = exam.rubric_details
             elif exam_questions:
-                parts = [
-                    f"Q{q.question_no}. {q.question_text}\nAnswer: {q.answer_text}"
-                    for q in exam_questions
-                ]
+                parts = []
+                for q in exam_questions:
+                    base = f"Q{q.question_no}. {q.question_text}"
+                    parts.append(base)
                 model_answer_text = "\n\n".join(parts)
             else:
                 model_answer_text = "Reference answer not provided."
@@ -509,62 +729,72 @@ def upload_page():
                     )
 
                     payload_items = []
+                    marks_by_q: dict[int, float | None] = {}
                     for eq in exam_questions:
+                        max_marks_val = float(eq.marks) if eq.marks is not None else None
+                        marks_by_q[eq.question_no] = max_marks_val
                         payload_items.append(
                             {
                                 "question_no": eq.question_no,
                                 "question_text": eq.question_text,
+                                # Model answers may be None/empty; the
+                                # Gemini helper will fall back to
+                                # grading using only the question text
+                                # and max marks in that case.
                                 "model_answer": eq.answer_text,
-                                "max_marks": float(eq.marks) if eq.marks is not None else None,
+                                "max_marks": max_marks_val,
                                 "student_answer": answers_by_q.get(eq.question_no, ""),
                             }
                         )
 
                     gemini_result = evaluate_answers_with_gemini(payload_items)
                     questions_out = gemini_result.get("questions", []) or []
-                    total_score = gemini_result.get("total_score")
 
                     per_q = []
-                    for item in questions_out:
-                        # Robustly parse question number from Gemini output
-                        q_no_raw = item.get("question_no")
-                        q_no = None
+                    # Align Gemini output with payload order so each
+                    # exam question gets a score, even if Gemini's
+                    # question_no field is inconsistent or missing.
+                    for idx, payload in enumerate(payload_items):
+                        q_no = payload["question_no"]
+                        out_item = questions_out[idx] if idx < len(questions_out) else {}
                         try:
-                            if isinstance(q_no_raw, (int, float)):
-                                q_no = int(q_no_raw)
-                            else:
-                                s = str(q_no_raw)
-                                m = re.search(r"\\d+", s)
-                                if m:
-                                    q_no = int(m.group(0))
-                        except (TypeError, ValueError):  # pragma: no cover - defensive
-                            q_no = None
-                        if q_no is None:
-                            continue
-                        try:
-                            q_score = float(item.get("score", 0.0))
+                            raw_score = float(out_item.get("score", 0.0))
                         except (TypeError, ValueError):
-                            q_score = 0.0
-                        feedback_text = (item.get("feedback") or "").strip()
-                        ans_text = next(
-                            (x["student_answer"] for x in payload_items if x["question_no"] == q_no),
-                            "",
-                        )
+                            raw_score = 0.0
+
+                        max_marks = marks_by_q.get(q_no)
+                        # If Gemini returns a 0-1 style score while we
+                        # have a higher max mark, scale it up so that a
+                        # score like 0.7 with max_marks=5 becomes 3.5.
+                        if (
+                            max_marks is not None
+                            and max_marks > 1.0
+                            and 0.0 <= raw_score <= 1.0
+                        ):
+                            q_score = raw_score * max_marks
+                        else:
+                            q_score = raw_score
+
+                        ans_text = payload["student_answer"] or ""
+                        # Do not store Gemini-generated comments; feedback
+                        # will be provided only by teachers during review.
                         per_q.append(
                             {
                                 "question_no": q_no,
                                 "answer_text": ans_text,
                                 "score": q_score,
-                                "feedback": feedback_text,
+                                "feedback": "",
                             }
                         )
 
-                    if total_score is None:
-                        total_score = sum(p["score"] for p in per_q) if per_q else 0.0
+                    # Always compute total as the sum of per-question
+                    # scores after any scaling.
+                    total_score = sum(p["score"] for p in per_q) if per_q else 0.0
 
                     final_score = round(float(total_score), 2)
-                    per_q_lines = [f"Q{p['question_no']}: {p['score']:.2f}" for p in per_q]
-                    feedback = "LLM (Gemini) evaluation. " + "; ".join(per_q_lines)
+                    # Keep overall feedback minimal; detailed comments are
+                    # added later by the teacher.
+                    feedback = "Auto-evaluated using Gemini based on exam rubric."
                 except GeminiConfigError as exc:
                     current_app.logger.warning(
                         "Gemini evaluation misconfigured, falling back to heuristic scoring: %s",
@@ -682,8 +912,6 @@ def upload_page():
         file = request.files.get("file")
 
         errors = []
-        if not student_name:
-            errors.append("Student name is required.")
         if not roll_no:
             errors.append("Roll number is required.")
         if not exam_id or file is None:
@@ -708,7 +936,13 @@ def upload_page():
             for e in errors:
                 flash(e, "error")
             exams = Exam.query.order_by(Exam.exam_id.asc()).all()
-            return render_template("upload.html", exams=exams)
+            selected_exam = None
+            try:
+                if exam_id_int is not None:
+                    selected_exam = Exam.query.get(exam_id_int)
+            except Exception:  # noqa: BLE001
+                selected_exam = None
+            return render_template("upload.html", exams=exams, selected_exam=selected_exam)
 
         upload_folder = current_app.config["UPLOAD_FOLDER"]
         os.makedirs(upload_folder, exist_ok=True)
@@ -716,11 +950,22 @@ def upload_page():
         ext = filename.rsplit(".", 1)[1].lower()
         from uuid import uuid4
 
-        # Find or create the student using name and roll number only.
+        # Find or create the student using roll number; name is
+        # optional if the student is already registered.
         student = Student.query.filter_by(roll_no=roll_no).first()
         if student is None:
+            if not student_name:
+                errors.append(
+                    "No student with this roll number. Provide a name to create one, or add the student via Manage Students.",
+                )
+                for e in errors:
+                    flash(e, "error")
+                exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+                selected_exam = Exam.query.get(exam_id_int) if exam_id_int is not None else None
+                return render_template("upload.html", exams=exams, selected_exam=selected_exam)
+
             # Course and semester are required in the model, so we store
-            # placeholder values since the guide requires only name + roll no.
+            # placeholder values when creating from this flow.
             student = Student(
                 name=student_name,
                 roll_no=roll_no,
@@ -804,7 +1049,60 @@ def upload_page():
         )
 
     exams = Exam.query.order_by(Exam.exam_id.asc()).all()
-    return render_template("upload.html", exams=exams)
+
+    selected_exam = None
+    exam_id_raw = request.args.get("exam_id")
+    if exam_id_raw:
+        try:
+            exam_id_int = int(exam_id_raw)
+            selected_exam = Exam.query.get(exam_id_int)
+        except (TypeError, ValueError):
+            selected_exam = None
+
+    return render_template("upload.html", exams=exams, selected_exam=selected_exam)
+
+
+@web_bp.route("/teacher/evaluate/select-exam")
+@login_required_view
+@role_required_view({UserRole.TEACHER})
+def select_exam_for_evaluation():
+    """Show a list of exams to start an evaluation flow.
+
+    The teacher first chooses the exam, then the next page only
+    requires the student's roll number and the answer sheet.
+    """
+
+    exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+    return render_template("evaluate_select_exam.html", exams=exams)
+
+
+@web_bp.route("/teacher/student/lookup")
+@login_required_view
+@role_required_view({UserRole.TEACHER})
+def lookup_student_by_roll():
+    """Lookup a student by roll number for the upload page.
+
+    Returns JSON with {found: bool, name, course, semester} so the
+    frontend can auto-fill the student name when the roll number
+    already exists.
+    """
+
+    roll_no = (request.args.get("roll_no") or "").strip()
+    if not roll_no:
+        return jsonify({"found": False}), 200
+
+    student = Student.query.filter_by(roll_no=roll_no).first()
+    if student is None:
+        return jsonify({"found": False}), 200
+
+    return jsonify(
+        {
+            "found": True,
+            "name": student.name,
+            "course": student.course,
+            "semester": student.semester,
+        }
+    )
 
 
 @web_bp.route("/review/<int:sheet_id>", methods=["GET", "POST"])
@@ -843,6 +1141,26 @@ def review_page(sheet_id: int):
                 }
             )
 
+    # Load any student comments for this sheet; when the teacher opens
+    # the review page, mark unresolved comments as resolved so they no
+    # longer appear as pending on the dashboard.
+    student_comments = (
+        QuestionStudentComment.query.filter_by(sheet_id=sheet.sheet_id)
+        .order_by(QuestionStudentComment.created_at.asc())
+        .all()
+    )
+    any_unresolved = False
+    for c in student_comments:
+        if not c.resolved:
+            c.resolved = True
+            any_unresolved = True
+    if any_unresolved:
+        db.session.commit()
+
+    # Questions for which the student has requested a review, used
+    # to visually highlight those rows in the teacher view.
+    commented_q_nos = {c.question_no for c in student_comments}
+
     if request.method == "POST":
         if sheet.status not in {AnswerSheetStatus.GRADED, AnswerSheetStatus.REVIEWED}:
             flash("Only graded or reviewed answer sheets can be overridden.", "error")
@@ -877,6 +1195,8 @@ def review_page(sheet_id: int):
                         "web.uploaded_file",
                         filename=os.path.basename(sheet.file_path),
                     ),
+                    student_comments=student_comments,
+                    commented_q_nos=commented_q_nos,
                 )
 
             qe.score = score_val
@@ -895,6 +1215,8 @@ def review_page(sheet_id: int):
                     "web.uploaded_file",
                     filename=os.path.basename(sheet.file_path),
                 ),
+                student_comments=student_comments,
+                commented_q_nos=commented_q_nos,
             )
 
         # Recompute overall score as the sum of question scores
@@ -938,6 +1260,8 @@ def review_page(sheet_id: int):
         evaluation=evaluation,
         per_question_details=per_question_details,
         file_url=file_url,
+        student_comments=student_comments,
+        commented_q_nos=commented_q_nos,
     )
 
 
@@ -1038,11 +1362,15 @@ def student_report():
     return render_template("student_report.html", student=student, reports=reports)
 
 
-@web_bp.route("/student/report/<int:exam_id>")
+@web_bp.route("/student/report/<int:exam_id>", methods=["GET", "POST"])
 @login_required_view
 @role_required_view({UserRole.STUDENT})
 def student_exam_report(exam_id: int):
-    """Detailed question-wise report for a single exam for the logged-in student."""
+    """Detailed question-wise report for a single exam for the logged-in student.
+
+    Also allows the student to submit up to 2 comments about specific
+    questions on their latest reviewed answer sheet for this exam.
+    """
 
     user = session.get("user")
     student_id = user.get("student_id")
@@ -1078,8 +1406,48 @@ def student_exam_report(exam_id: int):
         .first()
     )
 
+    if request.method == "POST":
+        if sheet is None:
+            flash("No reviewed answer sheet found for this exam.", "error")
+            return redirect(url_for("web.student_exam_report", exam_id=exam_id))
+
+        comment_text = (request.form.get("comment_text") or "").strip()
+        question_no_raw = request.form.get("question_no") or ""
+        try:
+            question_no = int(question_no_raw)
+        except (TypeError, ValueError):
+            question_no = None
+
+        if not comment_text or question_no is None:
+            flash("Please select a question and enter your comment.", "error")
+            return redirect(url_for("web.student_exam_report", exam_id=exam_id))
+
+        # Enforce a maximum of 2 comments per student per sheet
+        existing_count = (
+            QuestionStudentComment.query.filter_by(
+                student_id=student.student_id,
+                sheet_id=sheet.sheet_id,
+            ).count()
+        )
+        if existing_count >= 2:
+            flash("You have already used your 2 comments for this exam.", "error")
+            return redirect(url_for("web.student_exam_report", exam_id=exam_id))
+
+        new_comment = QuestionStudentComment(
+            student_id=student.student_id,
+            sheet_id=sheet.sheet_id,
+            question_no=question_no,
+            comment=comment_text,
+        )
+        db.session.add(new_comment)
+        db.session.commit()
+
+        flash("Your comment has been sent to the teacher.", "success")
+        return redirect(url_for("web.student_exam_report", exam_id=exam_id))
+
     per_question_details = []
     evaluation = None
+    teacher_feedback_by_q: dict[int, str] = {}
     if sheet is not None and sheet.extracted_text is not None:
         extracted = sheet.extracted_text
         evaluation = extracted.evaluation
@@ -1098,6 +1466,30 @@ def student_exam_report(exam_id: int):
                     }
                 )
 
+        teacher_feedback_by_q = {
+            item["question_no"]: item["feedback"] for item in per_question_details
+        }
+
+    # Existing student comments for this sheet and remaining slots
+    existing_comments = []
+    remaining_comment_slots = 0
+    file_url = None
+    if sheet is not None:
+        existing_comments = (
+            QuestionStudentComment.query.filter_by(
+                student_id=student.student_id,
+                sheet_id=sheet.sheet_id,
+            )
+            .order_by(QuestionStudentComment.created_at.asc())
+            .all()
+        )
+        remaining_comment_slots = max(0, 2 - len(existing_comments))
+
+        file_url = url_for(
+            "web.uploaded_file",
+            filename=os.path.basename(sheet.file_path),
+        )
+
     return render_template(
         "student_exam_detail.html",
         student=student,
@@ -1106,6 +1498,10 @@ def student_exam_report(exam_id: int):
         sheet=sheet,
         evaluation=evaluation,
         per_question_details=per_question_details,
+        existing_comments=existing_comments,
+        remaining_comment_slots=remaining_comment_slots,
+        teacher_feedback_by_q=teacher_feedback_by_q,
+        file_url=file_url,
     )
 
 

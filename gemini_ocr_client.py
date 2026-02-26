@@ -38,7 +38,11 @@ def _get_api_key() -> str:
 
 
 def extract_text(image_path: str, *, model_name: str = "gemini-2.5-flash") -> str:
-    """Run OCR on a local image file using Gemini.
+    """Run OCR on a local image or scanned-PDF file using Gemini.
+
+    - For image formats (JPG/PNG, etc.), passes a PIL image.
+    - For PDFs, uploads the file to Gemini and lets the model handle
+      the scanned pages (including images) directly.
 
     Returns plain extracted text. Any evaluation or scoring logic
     should be applied by the calling code.
@@ -52,21 +56,33 @@ def extract_text(image_path: str, *, model_name: str = "gemini-2.5-flash") -> st
     # 2.5 Flash gives good accuracy for extraction at a reasonable cost.
     model = genai.GenerativeModel(model_name)
 
-    img = Image.open(image_path)
+    ext = os.path.splitext(image_path)[1].lower()
 
     prompt = (
         "You are an OCR engine for exam answer sheets. "
-        "Extract ALL readable handwritten and printed text from this image. "
+        "Extract ALL readable handwritten and printed text from this document. "
         "Keep question numbers and line breaks where possible. "
         "Return ONLY the extracted text, with no explanations, comments, or labels."
     )
 
-    response = model.generate_content(
-        [prompt, img],
-        generation_config={
-            "temperature": 0.1,
-        },
-    )
+    if ext == ".pdf":
+        # Upload the scanned PDF so Gemini can process its pages
+        # (including embedded images/handwriting).
+        file_obj = genai.upload_file(path=image_path)
+        response = model.generate_content(
+            [prompt, file_obj],
+            generation_config={
+                "temperature": 0.1,
+            },
+        )
+    else:
+        img = Image.open(image_path)
+        response = model.generate_content(
+            [prompt, img],
+            generation_config={
+                "temperature": 0.1,
+            },
+        )
 
     text: Any = response.text or ""
     return str(text).strip()
@@ -83,17 +99,26 @@ def evaluate_answers_with_gemini(
 
         - question_no (int)
         - question_text (str)
-        - model_answer (str)
+        - model_answer (str, optional)
         - max_marks (float | None)
         - student_answer (str)
+
+    Behaviour:
+
+    - If at least one item provides a non-empty ``model_answer``,
+        Gemini is instructed to grade *strictly against the model
+        answer*.
+    - If all ``model_answer`` fields are empty/omitted, Gemini is
+        instructed to grade using only the question text and max marks,
+        based on typical expectations for that subject.
 
     Returns a JSON-like dict of the form::
 
         {
-          "questions": [
-            {"question_no": int, "score": float, "feedback": str}
-          ],
-          "total_score": float
+            "questions": [
+                {"question_no": int, "score": float, "feedback": str}
+            ],
+            "total_score": float
         }
     """
 
@@ -103,18 +128,40 @@ def evaluate_answers_with_gemini(
 
     items = list(per_question_items)
 
-    lines: list[str] = []
-    lines.append(
-        "You are an experienced exam evaluator. For each question you are given "
-        "the question text, a model answer, the maximum marks, and the student's "
-        "answer. Grade strictly against the model answer."
+    # Decide whether we are grading strictly against provided model
+    # answers or more generically using only question text.
+    has_any_model_answer = any(
+        bool((item.get("model_answer") or "").strip()) for item in items
     )
+
+    lines: list[str] = []
+    if has_any_model_answer:
+        lines.append(
+            "You are an experienced exam evaluator. For each question you are given "
+            "the question text, a model answer, the maximum marks, and the student's "
+            "answer. Grade strictly against the model answer. "
+            "Student answers may be written as bullet points or in table form; "
+            "treat those as normal text and grade their content."
+        )
+    else:
+        lines.append(
+            "You are an experienced exam evaluator. For each question you are given "
+            "the question text, the maximum marks, and the student's answer. "
+            "There is no explicit model answer; grade based on what a well-" \
+            "prepared student should write for that question, focusing on "
+            "conceptual correctness, completeness, and clarity. "
+            "Student answers may include bullet lists or tables; treat these "
+            "as valid text, not as missing answers."
+        )
+
     lines.append(
         "For each question, output a JSON object with: question_no (int), "
         "score (float between 0 and max_marks, inclusive), and feedback (short "
         "explanation). Use the full range [0, max_marks] where appropriate: "
         "answers that are mostly correct should receive a score close to "
-        "max_marks, not a tiny decimal."
+        "max_marks, not a tiny decimal. Do not say that a question is "
+        "unanswered if there is any non-trivial student text; in that case, "
+        "assign at least some partial marks if any relevant points are present."
     )
     lines.append(
         "Finally, also include total_score as the sum of per-question scores. "
@@ -127,14 +174,15 @@ def evaluate_answers_with_gemini(
     for item in items:
         q_no = item.get("question_no")
         q_text = item.get("question_text") or ""
-        m_ans = item.get("model_answer") or ""
+        m_ans = (item.get("model_answer") or "").strip()
         max_marks = item.get("max_marks")
         s_ans = item.get("student_answer") or ""
 
         marks_part = f"Max marks: {max_marks}" if max_marks is not None else "Max marks: use a 0-1 scale"
         lines.append(f"Question {q_no}:")
         lines.append(q_text)
-        lines.append(f"Model answer: {m_ans}")
+        if m_ans:
+            lines.append(f"Model answer: {m_ans}")
         lines.append(marks_part)
         if s_ans.strip():
             lines.append(f"Student answer: {s_ans}")

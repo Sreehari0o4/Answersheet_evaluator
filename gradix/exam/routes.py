@@ -83,6 +83,8 @@ def create_exam():
                 q_no = idx
 
             question_text = (item.get("question_text") or "").strip()
+            # Model/ideal answer is now optional; if omitted, Gemini
+            # will grade using only the question text and marks.
             answer_text = (item.get("answer_text") or "").strip()
             marks_raw = item.get("marks")
 
@@ -93,14 +95,18 @@ def create_exam():
                 except (TypeError, ValueError):
                     marks_val = None
 
-            if not question_text or not answer_text:
+            # Require a question text; answer text may be blank.
+            if not question_text:
                 continue
 
             eq = ExamQuestion(
                 exam_id=exam.exam_id,
                 question_no=q_no,
                 question_text=question_text,
-                answer_text=answer_text,
+                # Store an empty string instead of NULL so it
+                # satisfies existing NOT NULL constraints in
+                # production MySQL databases.
+                answer_text=answer_text or "",
                 marks=marks_val,
             )
             db.session.add(eq)
@@ -108,7 +114,7 @@ def create_exam():
                 (
                     f"Q{q_no}"
                     + (f" ({marks_val} marks)" if marks_val is not None else "")
-                    + f". {question_text}\nAnswer: {answer_text}"
+                    + f". {question_text}"
                 )
             )
 

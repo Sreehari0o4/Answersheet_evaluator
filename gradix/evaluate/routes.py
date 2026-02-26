@@ -115,14 +115,6 @@ def evaluate_sheet(sheet_id: int):
             HTTPStatus.BAD_REQUEST,
         )
 
-    data = request.get_json(silent=True) or {}
-    model_answer = data.get("model_answer")
-    if not model_answer:
-        return (
-            jsonify({"message": "'model_answer' is required in request body."}),
-            HTTPStatus.BAD_REQUEST,
-        )
-
     # First, split the *raw* OCR text into numbered answers so
     # question numbers are not lost by later grammar correction.
     segments = split_numbered_answers(extracted.raw_text)
@@ -153,6 +145,9 @@ def evaluate_sheet(sheet_id: int):
                     {
                         "question_no": eq.question_no,
                         "question_text": eq.question_text,
+                        # Model answers may be None/empty; Gemini
+                        # will fall back to question-only grading in
+                        # that case.
                         "model_answer": eq.answer_text,
                         "max_marks": float(eq.marks) if eq.marks is not None else None,
                         "student_answer": answers_by_q.get(eq.question_no, ""),
@@ -206,28 +201,33 @@ def evaluate_sheet(sheet_id: int):
             feedback = "LLM (Gemini) evaluation. " + "; ".join(per_q_lines)
         except GeminiConfigError as exc:
             logger.warning("Gemini evaluation misconfigured, falling back to mock scoring: %s", exc)
+            # Fallback: simple heuristic based on the full text; since
+            # we may not have a reference answer, pass the raw text
+            # again as a placeholder.
             final_score, feedback, per_q = evaluate_text_by_questions(
                 extracted.raw_text,
-                model_answer,
+                extracted.raw_text,
             )
         except Exception as exc:  # noqa: BLE001
             logger.exception("Gemini evaluation failed, falling back to mock scoring: %s", exc)
             final_score, feedback, per_q = evaluate_text_by_questions(
                 extracted.raw_text,
-                model_answer,
+                extracted.raw_text,
             )
     else:
         # No structured exam questions; fall back to simple heuristic scoring.
         final_score, feedback, per_q = evaluate_text_by_questions(
             extracted.raw_text,
-            model_answer,
+            extracted.raw_text,
         )
 
     evaluation = Evaluation.query.filter_by(text_id=extracted.text_id).first()
     if evaluation is None:
         evaluation = Evaluation(
             text_id=extracted.text_id,
-            model_answer_ref=model_answer,
+            # For API-based evaluation we no longer require a
+            # separate model answer; store a brief note instead.
+            model_answer_ref="Evaluated via Gemini API.",
             score=final_score,
             feedback=feedback,
             evaluated_on=datetime.utcnow(),
@@ -235,7 +235,7 @@ def evaluate_sheet(sheet_id: int):
         db.session.add(evaluation)
         db.session.flush()
     else:
-        evaluation.model_answer_ref = model_answer
+        evaluation.model_answer_ref = "Evaluated via Gemini API."
         evaluation.score = final_score
         evaluation.feedback = feedback
         evaluation.evaluated_on = datetime.utcnow()

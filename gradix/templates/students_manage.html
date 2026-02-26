@@ -94,14 +94,25 @@
             margin-bottom: 24px;
         }
         .flash-messages li {
-            background-color: #fee2e2;
-            color: #b91c1c;
             padding: 12px;
-            border-left: 5px solid #b91c1c;
+            border-left: 5px solid transparent;
             border-radius: 4px;
             font-size: 14px;
             font-weight: 500;
             margin-bottom: 8px;
+        }
+
+        .flash-messages li.success {
+            background-color: #dcfce7;
+            color: #166534;
+            border-left-color: #166534;
+        }
+
+        .flash-messages li.error,
+        .flash-messages li.danger {
+            background-color: #fee2e2;
+            color: #b91c1c;
+            border-left-color: #b91c1c;
         }
 
         /* Form Styling */
@@ -223,13 +234,37 @@
 
         <h1>Manage Students</h1>
 
+        <form method="get" style="margin-top:16px; margin-bottom:16px; display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+            <div class="form-group" style="min-width:180px;">
+                <label>Filter by Course</label>
+                <select name="course" style="width:100%; padding:10px 12px; border:2px solid #e2e8f0; border-radius:8px; font-size:14px;">
+                    <option value="">All Courses</option>
+                    {% for c in courses %}
+                        <option value="{{ c }}" {% if selected_course == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="min-width:140px;">
+                <label>Filter by Semester</label>
+                <select name="semester" style="width:100%; padding:10px 12px; border:2px solid #e2e8f0; border-radius:8px; font-size:14px;">
+                    <option value="">All Semesters</option>
+                    {% for sem in semesters %}
+                        <option value="{{ sem }}" {% if selected_semester == sem %}selected{% endif %}>{{ sem }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group" style="min-width:120px;">
+                <button type="submit" class="btn-submit" style="margin-top:0; padding:10px 16px;">Apply Filters</button>
+            </div>
+        </form>
+
         {% with messages = get_flashed_messages(with_categories=true) %}
           {% if messages %}
-            <ul class="flash-messages">
-              {% for category, message in messages %}
-                <li><strong>{{ category }}:</strong> {{ message }}</li>
-              {% endfor %}
-            </ul>
+                        <ul class="flash-messages">
+                            {% for category, message in messages %}
+                                <li class="{{ category }}"><strong>{{ category }}:</strong> {{ message }}</li>
+                            {% endfor %}
+                        </ul>
           {% endif %}
         {% endwith %}
 
@@ -268,6 +303,7 @@
                         <th>Roll No</th>
                         <th>Course</th>
                         <th>Semester</th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -278,10 +314,15 @@
                             <td>{{ s.roll_no }}</td>
                             <td>{{ s.course }}</td>
                             <td>{{ s.semester }}</td>
+                            <td>
+                                <form method="post" action="{{ url_for('web.delete_student', student_id=s.student_id) }}" onsubmit="return confirm('Remove this student and all their related data?');">
+                                    <button type="submit" style="border:none; background-color:#fee2e2; color:#b91c1c; font-size:12px; font-weight:600; padding:6px 10px; border-radius:999px; cursor:pointer;">Remove</button>
+                                </form>
+                            </td>
                         </tr>
                     {% else %}
                         <tr>
-                            <td colspan="5" class="empty-text">No students yet.</td>
+                            <td colspan="6" class="empty-text">No students yet.</td>
                         </tr>
                     {% endfor %}
                 </tbody>

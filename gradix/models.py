@@ -46,7 +46,14 @@ class ExamQuestion(db.Model):
     exam_id = db.Column(db.Integer, db.ForeignKey("exams.exam_id"), nullable=False)
     question_no = db.Column(db.Integer, nullable=False)
     question_text = db.Column(db.Text, nullable=False)
-    answer_text = db.Column(db.Text, nullable=False)
+    # Model/ideal answer for this question.
+    #
+    # Originally this was non-nullable and required at exam-creation
+    # time. The evaluation pipeline has been updated so that exams
+    # can be created without providing model answers; Gemini can
+    # grade using only the question text and max marks. When a
+    # teacher later supplies a model answer, it can be stored here.
+    answer_text = db.Column(db.Text, nullable=True)
     marks = db.Column(db.Float, nullable=True)
 
     exam = db.relationship(
@@ -142,3 +149,18 @@ class Report(db.Model):
 
     student = db.relationship("Student", backref="reports")
     exam = db.relationship("Exam", backref="reports")
+
+
+class QuestionStudentComment(db.Model):
+    __tablename__ = "question_student_comments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    student_id = db.Column(db.Integer, db.ForeignKey("students.student_id"), nullable=False)
+    sheet_id = db.Column(db.Integer, db.ForeignKey("answer_sheets.sheet_id"), nullable=False)
+    question_no = db.Column(db.Integer, nullable=False)
+    comment = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    resolved = db.Column(db.Boolean, nullable=False, default=False)
+
+    student = db.relationship("Student", backref="question_comments")
+    sheet = db.relationship("AnswerSheet", backref="student_comments")

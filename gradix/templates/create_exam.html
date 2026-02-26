@@ -219,9 +219,66 @@
             box-shadow: 0 6px 8px -1px rgba(29, 78, 216, 0.5);
         }
 
+        /* Full-page loading overlay for question extraction */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.65);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(2px);
+            visibility: hidden;
+            opacity: 0;
+            transition: opacity 0.2s ease, visibility 0.2s ease;
+        }
+
+        .loading-overlay.active {
+            visibility: visible;
+            opacity: 1;
+        }
+
+        .loading-box {
+            background: #0b1120;
+            color: #e5e7eb;
+            padding: 20px 24px;
+            border-radius: 12px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            font-size: 14px;
+        }
+
+        .spinner {
+            width: 22px;
+            height: 22px;
+            border-radius: 999px;
+            border: 3px solid rgba(148, 163, 184, 0.5);
+            border-top-color: #38bdf8;
+            animation: spin 0.7s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
     </style>
 </head>
 <body>
+
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <div>
+                Extracting questions from the paper...<br>
+                <span style="font-size:12px; color:#9ca3af;">This may take a few seconds.</span>
+            </div>
+        </div>
+    </div>
 
     <div class="card">
         <a href="{{ url_for('web.teacher_dashboard') }}" class="back-link">
@@ -254,19 +311,27 @@
                 </div>
             </div>
 
+            <div class="form-group">
+                <label>Exam Question Paper Image <span>(Optional – used to auto-fill questions)</span></label>
+                <input type="file" name="question_paper" id="question_paper" accept="application/pdf,image/png,image/jpeg">
+            </div>
+
             <div class="form-row">
                 <div class="col-fixed">
                     <label>Total Questions</label>
                     <input type="number" name="total_questions" id="total_questions" min="1" required placeholder="e.g. 5">
                 </div>
                 <div class="col-grow">
-                    <label><span>Enter total number of questions, then click Generate.</span></label>
-                    <button type="button" class="btn-secondary" onclick="generateQuestions()">Generate Question Fields</button>
+                    <label><span>Generate question fields manually or from the uploaded question paper.</span></label>
+                    <div style="display:flex; gap:8px;">
+                        <button type="button" class="btn-secondary" onclick="generateQuestions()">Generate Manually</button>
+                        <button type="button" class="btn-secondary" onclick="updateQuestionsFromPaper()">Update Questions from Paper</button>
+                    </div>
                 </div>
             </div>
 
             <div class="form-group">
-                <label>Questions &amp; Model Answers <span>(Required for evaluation)</span></label>
+                <label>Questions <span>(Marks required; model answers are optional and can be added later)</span></label>
                 <div id="questions-container"></div>
             </div>
 
@@ -277,7 +342,7 @@
     </div>
 
     <script>
-        function generateQuestions() {
+        function generateQuestions(prefilled) {
             const totalInput = document.getElementById('total_questions');
             const container = document.getElementById('questions-container');
 
@@ -293,24 +358,69 @@
                 const block = document.createElement('div');
                 block.className = 'question-block';
 
+                const q = prefilled && prefilled[i - 1] ? prefilled[i - 1] : null;
+                const qNo = q && q.question_no ? q.question_no : i;
+                const qText = q && q.question_text ? q.question_text : '';
+                const qMarks = q && typeof q.marks !== 'undefined' && q.marks !== null ? q.marks : '';
+
                 block.innerHTML = `
-                    <div class="question-header">Question ${i}</div>
-                    <input type="hidden" name="question_no_${i}" value="${i}">
+                    <div class="question-header">Question ${qNo}</div>
+                    <input type="hidden" name="question_no_${i}" value="${qNo}">
                     <div class="form-group-inline">
                         <label>Marks</label>
-                        <input type="number" name="marks_${i}" min="0.5" step="0.5" required placeholder="e.g. 2">
+                        <input type="number" name="marks_${i}" min="0.5" step="0.5" required placeholder="e.g. 2" value="${qMarks}">
                     </div>
                     <div class="form-group-inline">
                         <label>Question Text</label>
-                        <textarea name="question_text_${i}" required placeholder="Enter question ${i}..."></textarea>
-                    </div>
-                    <div class="form-group-inline">
-                        <label>Answer / Model Answer</label>
-                        <textarea name="answer_text_${i}" required placeholder="Enter ideal answer for question ${i}..."></textarea>
+                        <textarea name="question_text_${i}" required placeholder="Enter question ${qNo}...">${qText}</textarea>
                     </div>
                 `;
 
                 container.appendChild(block);
+            }
+        }
+
+        async function updateQuestionsFromPaper() {
+            const fileInput = document.getElementById('question_paper');
+            const totalInput = document.getElementById('total_questions');
+            const overlay = document.getElementById('loading-overlay');
+
+            if (!fileInput || !fileInput.files || !fileInput.files[0]) {
+                alert('Please select a question paper image or PDF first.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('question_paper', fileInput.files[0]);
+
+            try {
+                if (overlay) overlay.classList.add('active');
+
+                const resp = await fetch('{{ url_for('web.extract_questions_from_paper') }}', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    alert(err.message || 'Failed to extract questions from the paper.');
+                    return;
+                }
+
+                const data = await resp.json();
+                const questions = data.questions || [];
+                if (!questions.length) {
+                    alert('No questions could be detected from the uploaded paper.');
+                    return;
+                }
+
+                totalInput.value = questions.length;
+                generateQuestions(questions);
+            } catch (e) {
+                console.error(e);
+                alert('Unexpected error while extracting questions from the paper.');
+            } finally {
+                if (overlay) overlay.classList.remove('active');
             }
         }
     </script>

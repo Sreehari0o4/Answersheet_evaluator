@@ -234,6 +234,46 @@
             color: #1d4ed8;
             transform: translateX(-2px);
         }
+
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .loading-card {
+            background: #0f172a;
+            padding: 24px 28px;
+            border-radius: 14px;
+            box-shadow: 0 15px 25px rgba(0, 0, 0, 0.4);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            border: 1px solid #1d4ed8;
+        }
+
+        .loading-spinner {
+            width: 32px;
+            height: 32px;
+            border-radius: 999px;
+            border: 3px solid rgba(148, 163, 184, 0.6);
+            border-top-color: #60a5fa;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .loading-text {
+            color: #e5e7eb;
+            font-size: 14px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
     </style>
 </head>
 <body>
@@ -257,6 +297,38 @@
                 <input type="hidden" name="sheet_id" value="{{ sheet.sheet_id }}">
             {% endif %}
 
+            <div class="form-group">
+                <label>Roll Number</label>
+                <input type="text" name="roll_no" placeholder="Enter roll number" id="roll_no_input">
+            </div>
+
+            <div class="form-group">
+                <label>Student Name <span style="font-weight:400; color:#94a3b8; font-size:12px;">Auto-filled if roll number exists, otherwise enter to create</span></label>
+                <input type="text" name="student_name" placeholder="Name will appear after entering roll number" id="student_name_input">
+                <div id="student_lookup_status" style="margin-top:6px; font-size:12px; color:#94a3b8;"></div>
+            </div>
+
+            <div class="form-row">
+                <div class="col">
+                    {% if selected_exam %}
+                        <label>Exam</label>
+                        <div style="padding:10px 12px; border-radius:8px; background-color:#f1f5f9; border:1px solid #e2e8f0; font-size:14px; color:#0f172a;">
+                            {{ selected_exam.subject }}
+                            <span style="color:#64748b; font-size:12px;">(Max Marks: {{ selected_exam.max_marks }})</span>
+                        </div>
+                        <input type="hidden" name="exam_id" value="{{ selected_exam.exam_id }}">
+                    {% else %}
+                        <label>Exam</label>
+                        <select name="exam_id">
+                            <option value="" disabled {% if not sheet %}selected{% endif %}>Select exam</option>
+                            {% for e in exams %}
+                                <option value="{{ e.exam_id }}" {% if sheet and sheet.exam_id == e.exam_id %}selected{% endif %}>{{ e.subject }}</option>
+                            {% endfor %}
+                        </select>
+                    {% endif %}
+                </div>
+            </div>
+
             <div class="upload-area">
                 <svg class="icon-cloud" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
@@ -264,28 +336,6 @@
                 <div class="upload-text-main">Click to upload or drag and drop</div>
                 <div class="upload-text-sub">PDF, PNG, or JPG (max 10MB)</div>
                 <input type="file" name="file" accept="application/pdf,image/png,image/jpeg">
-            </div>
-
-            <div class="form-group">
-                <label>Student Name</label>
-                <input type="text" name="student_name" placeholder="Enter student name">
-            </div>
-
-            <div class="form-group">
-                <label>Roll Number</label>
-                <input type="text" name="roll_no" placeholder="Enter roll number">
-            </div>
-
-            <div class="form-row">
-                <div class="col">
-                    <label>Exam</label>
-                    <select name="exam_id">
-                        <option value="" disabled {% if not sheet %}selected{% endif %}>Select exam</option>
-                        {% for e in exams %}
-                            <option value="{{ e.exam_id }}" {% if sheet and sheet.exam_id == e.exam_id %}selected{% endif %}>{{ e.subject }}</option>
-                        {% endfor %}
-                    </select>
-                </div>
             </div>
 
             <div class="btn-row">
@@ -300,11 +350,19 @@
         {% endif %}
     </div>
 
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="loading-card">
+            <div class="loading-spinner"></div>
+            <div id="loading-text" class="loading-text">Extracting text, please wait...</div>
+        </div>
+    </div>
+
     <script>
         (function () {
             const fileInput = document.querySelector('input[type="file"][name="file"]');
             const mainText = document.querySelector('.upload-text-main');
             const subText = document.querySelector('.upload-text-sub');
+            const rollInput = document.getElementById('roll_no_input');
 
             if (!fileInput || !mainText || !subText) return;
 
@@ -315,12 +373,115 @@
 
             fileInput.addEventListener('change', function () {
                 if (this.files && this.files[0]) {
-                    mainText.textContent = this.files[0].name;
+                    const fileName = this.files[0].name || '';
+                    mainText.textContent = fileName;
                     subText.textContent = 'Selected file';
+
+                    // If roll number is empty, try to auto-detect it
+                    // from the filename (e.g. 2024001.pdf or marks_2024001.jpg).
+                    if (rollInput && !rollInput.value.trim()) {
+                        const base = fileName.split('.').slice(0, -1).join('.') || fileName;
+                        const match = base.match(/\d+/);
+                        if (match && match[0]) {
+                            rollInput.value = match[0];
+                            // Trigger change so the existing lookup logic
+                            // can auto-fill the student name if present.
+                            rollInput.dispatchEvent(new Event('change'));
+                        }
+                    }
                 } else {
                     resetTexts();
                 }
             });
+        })();
+
+        (function () {
+            const rollInput = document.getElementById('roll_no_input');
+            const nameInput = document.getElementById('student_name_input');
+            const statusEl = document.getElementById('student_lookup_status');
+
+            if (!rollInput || !nameInput) return;
+
+            let lastRollQueried = '';
+
+            function setStatus(text, color) {
+                if (!statusEl) return;
+                statusEl.textContent = text || '';
+                statusEl.style.color = color || '#94a3b8';
+            }
+
+            function lookupStudent() {
+                const roll = rollInput.value.trim();
+                if (!roll) {
+                    nameInput.readOnly = false;
+                    nameInput.value = '';
+                    nameInput.placeholder = 'Name will appear after entering roll number';
+                    setStatus('', '#94a3b8');
+                    return;
+                }
+
+                lastRollQueried = roll;
+                setStatus('Checking student...', '#94a3b8');
+
+                fetch("{{ url_for('web.lookup_student_by_roll') }}?roll_no=" + encodeURIComponent(roll))
+                    .then(function (res) { return res.ok ? res.json() : { found: false }; })
+                    .then(function (data) {
+                        if (rollInput.value.trim() !== lastRollQueried) {
+                            return;
+                        }
+
+                        if (data && data.found) {
+                            nameInput.value = data.name || '';
+                            nameInput.readOnly = true;
+                            nameInput.placeholder = '';
+                            setStatus('Existing student found for this roll number.', '#16a34a');
+                        } else {
+                            nameInput.readOnly = false;
+                            if (!nameInput.value) {
+                                nameInput.placeholder = 'No student found. Enter name to create.';
+                            }
+                            setStatus('No student found. Enter a name to create a new one.', '#f97316');
+                        }
+                    })
+                    .catch(function () {
+                        nameInput.readOnly = false;
+                        setStatus('Could not verify student. You can still enter a name.', '#94a3b8');
+                    });
+            }
+
+            rollInput.addEventListener('blur', lookupStudent);
+            rollInput.addEventListener('change', lookupStudent);
+        })();
+
+        (function () {
+            const extractBtn = document.querySelector('button[name="action"][value="extract"]');
+            const evalBtn = document.querySelector('button[name="action"][value="evaluate"]');
+            const overlay = document.getElementById('loading-overlay');
+            const loadingText = document.getElementById('loading-text');
+            const fileInput = document.querySelector('input[type="file"][name="file"]');
+
+            if (!overlay) return;
+
+            if (extractBtn) {
+                extractBtn.addEventListener('click', function () {
+                    if (fileInput && (!fileInput.files || !fileInput.files[0])) {
+                        return;
+                    }
+                    if (loadingText) {
+                        loadingText.textContent = 'Extracting text, please wait...';
+                    }
+                    overlay.style.display = 'flex';
+                });
+            }
+
+            if (evalBtn) {
+                evalBtn.addEventListener('click', function () {
+                    if (loadingText) {
+                        loadingText.textContent = 'Evaluating answers, please wait...';
+                    }
+                    overlay.style.display = 'flex';
+                });
+            }
         })();
     </script>
 </body>

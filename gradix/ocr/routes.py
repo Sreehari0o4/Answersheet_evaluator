@@ -21,6 +21,39 @@ _trocr_model = None
 _trocr_model_id: str | None = None
 
 
+def _extract_pdf_text(file_path: str) -> tuple[str, float] | tuple[None, float]:
+    """Extract text directly from a PDF without OCR.
+
+    Uses PyPDF2 to read selectable text from each page. This is
+    preferred for digital PDFs because it is faster and more
+    accurate than image-based OCR.
+    """
+
+    try:  # pragma: no cover - depends on optional dependency
+        import PyPDF2  # type: ignore
+
+        abs_path = os.path.abspath(file_path)
+        with open(abs_path, "rb") as f:  # noqa: PTH123
+            reader = PyPDF2.PdfReader(f)
+            pieces: list[str] = []
+            for page in reader.pages:
+                try:
+                    page_text = page.extract_text() or ""
+                except Exception:
+                    page_text = ""
+                if page_text.strip():
+                    pieces.append(page_text.strip())
+
+        if not pieces:
+            return None, 0.0
+
+        text = "\n\n".join(pieces).strip()
+        return text, 0.99
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("PDF text extraction failed, falling back to OCR: %s", exc)
+        return None, 0.0
+
+
 def _preprocess_image(file_path: str) -> tuple[str, bool]:
     """Lightly preprocess the image to help OCR.
 
@@ -175,15 +208,34 @@ def _run_tesseract(file_path: str) -> tuple[str, float]:
 
 
 def run_ocr(file_path: str) -> tuple[str, float]:
-    """High-level OCR wrapper.
+    """High-level OCR/text-extraction wrapper.
 
-    Local backends only (used as fallback if Scripily is disabled or
+    Local backends only (used as fallback if cloud OCR is disabled or
     unavailable):
 
-    1. Preprocess the image (grayscale + threshold + optional upscale).
-    2. Try EasyOCR (works well for handwriting).
-    3. As a last resort, fall back to Tesseract if available.
+    - For PDF files, first attempt direct text extraction using
+      PyPDF2 without OCR.
+    - For image files, or if PDF extraction fails, fall back to the
+      existing image OCR pipeline:
+        1. Preprocess the image (grayscale + threshold + optional upscale).
+        2. Try EasyOCR (works well for handwriting).
+        3. As a last resort, fall back to Tesseract if available.
     """
+
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".pdf":
+        # For PDFs, first try direct text extraction. If that fails or
+        # the PDF only contains images, we currently do *not* run
+        # image-based OCR on the PDF container itself because tools
+        # like Tesseract expect image formats, not PDFs.
+        text, confidence = _extract_pdf_text(file_path)
+        if text:
+            return text, confidence
+        # No selectable text found in the PDF; return empty so callers
+        # can handle this as "no text" instead of crashing Tesseract
+        # on a non-image input.
+        return "", 0.0
+
     processed_path, is_temp = _preprocess_image(file_path)
 
     try:
