@@ -2668,3 +2668,121 @@ def delete_student_evaluation(student_id: int, exam_id: int):
 
     flash("Student evaluation for this exam has been removed.", "success")
     return redirect(url_for("web.evaluated_students", exam_id=exam_id))
+
+
+@web_bp.route("/teacher/exam/<int:exam_id>/report")
+@login_required_view
+@role_required_view({UserRole.TEACHER, UserRole.ADMIN})
+def exam_report_page(exam_id: int):
+    """Aggregate report for a single exam.
+
+    Shows submission/evaluation status breakdown, mark distribution,
+    and top-performing students for the selected exam.
+    """
+
+    exam = Exam.query.get_or_404(exam_id)
+
+    # All students currently in the system
+    all_students = Student.query.order_by(Student.roll_no.asc()).all()
+    all_student_ids = {s.student_id for s in all_students}
+
+    # All answer sheets for this exam
+    sheets = AnswerSheet.query.filter_by(exam_id=exam.exam_id).all()
+
+    pending_student_ids = {
+        s.student_id for s in sheets if s.status == AnswerSheetStatus.PENDING
+    }
+    evaluated_student_ids = {
+        s.student_id
+        for s in sheets
+        if s.status in {AnswerSheetStatus.GRADED, AnswerSheetStatus.REVIEWED}
+    }
+    students_with_sheet = {s.student_id for s in sheets}
+    not_submitted_ids = all_student_ids - students_with_sheet
+
+    status_counts = {
+        "submitted_pending": len(pending_student_ids),
+        "evaluated": len(evaluated_student_ids),
+        "not_submitted": len(not_submitted_ids),
+        "total_students": len(all_student_ids),
+    }
+
+    # Mark distribution for students who have a Report entry for this exam.
+    reports = (
+        Report.query.filter_by(exam_id=exam.exam_id)
+        .join(Student, Report.student_id == Student.student_id)
+        .order_by(Report.total_score.desc())
+        .all()
+    )
+
+    marks_data = [
+        {
+            "student_id": r.student.student_id,
+            "label": f"{r.student.name} ({r.student.roll_no})",
+            "score": float(r.total_score),
+        }
+        for r in reports
+    ]
+
+    top_students = marks_data[:3]
+
+    # Basic mark statistics
+    if marks_data:
+        scores_only = [m["score"] for m in marks_data]
+        avg_score = sum(scores_only) / len(scores_only)
+        highest_score = max(scores_only)
+        lowest_score = min(scores_only)
+    else:
+        avg_score = highest_score = lowest_score = None
+
+    marks_stats = {
+        "average": avg_score,
+        "highest": highest_score,
+        "lowest": lowest_score,
+        "max_marks": float(exam.max_marks) if exam.max_marks is not None else None,
+    }
+
+    # Percentage-based histogram of students in mark ranges
+    histogram_labels = ["0-25%", "25-50%", "50-75%", "75-100%"]
+    histogram_counts = [0, 0, 0, 0]
+    max_marks_val = (
+        float(exam.max_marks)
+        if exam.max_marks is not None and float(exam.max_marks) > 0
+        else None
+    )
+
+    if marks_data and max_marks_val:
+        for m in marks_data:
+            pct = (m["score"] / max_marks_val) * 100.0
+            if pct < 25:
+                histogram_counts[0] += 1
+            elif pct < 50:
+                histogram_counts[1] += 1
+            elif pct < 75:
+                histogram_counts[2] += 1
+            else:
+                histogram_counts[3] += 1
+
+    total_marked = sum(histogram_counts)
+    if total_marked > 0:
+        histogram_percentages = [
+            round((c * 100.0) / total_marked, 1) for c in histogram_counts
+        ]
+    else:
+        histogram_percentages = [0.0 for _ in histogram_counts]
+
+    marks_histogram = {
+        "labels": histogram_labels,
+        "percentages": histogram_percentages,
+        "counts": histogram_counts,
+        "total": total_marked,
+    }
+
+    return render_template(
+        "exam_report.html",
+        exam=exam,
+        status_counts=status_counts,
+        marks_stats=marks_stats,
+        marks_histogram=marks_histogram,
+        top_students=top_students,
+    )
