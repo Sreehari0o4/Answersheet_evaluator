@@ -1,5 +1,7 @@
 import os
 import re
+import json
+import tempfile
 from datetime import datetime
 from functools import wraps
 
@@ -68,6 +70,42 @@ def role_required_view(allowed_roles):
         return wrapper
 
     return decorator
+
+
+def _parse_students_from_ocr_text(text: str) -> list[dict[str, str]]:
+    """Parse OCR text into a list of {name, roll_no} dicts.
+
+    Expected line format (per student):
+
+        Name - RollNumber
+
+    Lines without a dash or with missing parts are ignored.
+    """
+
+    students: list[dict[str, str]] = []
+    if not text:
+        return students
+
+    for raw_line in text.splitlines():
+        line = (raw_line or "").strip()
+        if not line:
+            continue
+
+        # Normalize common dash variants
+        line = line.replace("\u2013", "-").replace("\u2014", "-")
+        if "-" not in line:
+            continue
+
+        name_part, roll_part = line.split("-", 1)
+        name = name_part.strip(" \t:-")
+        roll_no = roll_part.strip(" \t:-")
+
+        if not name or not roll_no:
+            continue
+
+        students.append({"name": name, "roll_no": roll_no})
+
+    return students
 
 
 @web_bp.route("/")
@@ -199,6 +237,65 @@ def teacher_dashboard():
     )
 
 
+def _apply_or_group_scoring(exam_questions, per_q: list[dict]) -> tuple[list[dict], float]:
+    """Compute total score with OR-groups, without altering per-question scores.
+
+    When two or more questions in ``exam_questions`` share the same
+    non-null ``or_group`` value, they are treated as alternatives and
+    only the highest-scoring one in that group contributes to the
+    overall total. Individual per-question scores in ``per_q`` are
+    left unchanged so that teachers can still see marks for all
+    answered questions in the review UI.
+    """
+
+    if not exam_questions or not per_q:
+        total = sum(float(p.get("score", 0.0) or 0.0) for p in per_q) if per_q else 0.0
+        return per_q, float(total)
+
+    # Map question number to its raw score from the evaluation output.
+    raw_scores: dict[int, float] = {}
+    for item in per_q:
+        try:
+            q_no = int(item.get("question_no"))
+        except (TypeError, ValueError):
+            continue
+        try:
+            score_val = float(item.get("score", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            score_val = 0.0
+        raw_scores[q_no] = score_val
+
+    # Build OR groups from the exam definition.
+    groups: dict[int, list[int]] = {}
+    for eq in exam_questions:
+        group_id = getattr(eq, "or_group", None)
+        if group_id is None:
+            continue
+        groups.setdefault(group_id, []).append(eq.question_no)
+
+    total = 0.0
+    used_in_group: set[int] = set()
+
+    # For each OR group, add only the highest-scoring question.
+    for _, q_list in groups.items():
+        if not q_list:
+            continue
+        best_score = 0.0
+        for q_no in q_list:
+            used_in_group.add(q_no)
+            score = raw_scores.get(q_no, 0.0)
+            if score > best_score:
+                best_score = score
+        total += best_score
+
+    # Questions not in any OR group contribute their full score.
+    for eq in exam_questions:
+        if getattr(eq, "or_group", None) is None:
+            total += raw_scores.get(eq.question_no, 0.0)
+
+    return per_q, float(total)
+
+
 @web_bp.route("/teacher/exam/create", methods=["GET", "POST"])
 @login_required_view
 @role_required_view({UserRole.TEACHER, UserRole.ADMIN})
@@ -241,6 +338,13 @@ def create_exam_page():
                 q_text = (request.form.get(f"question_text_{i}") or "").strip()
                 marks_raw = request.form.get(f"marks_{i}")
 
+                # Optional OR-group: when multiple questions share the
+                # same positive integer group value, they are treated
+                # as alternatives (student should answer any one). At
+                # evaluation time only the highest-scoring question in
+                # each OR group contributes to the total.
+                or_group_raw = request.form.get(f"or_group_{i}") or "" 
+
                 try:
                     marks_val = float(marks_raw) if marks_raw is not None else None
                     if marks_val is not None and marks_val <= 0:
@@ -248,6 +352,18 @@ def create_exam_page():
                 except (TypeError, ValueError):
                     errors.append(f"Question {i}: marks must be a positive number.")
                     marks_val = None
+
+                or_group_val = None
+                if or_group_raw.strip():
+                    try:
+                        or_group_val = int(or_group_raw)
+                        if or_group_val <= 0:
+                            raise ValueError
+                    except (TypeError, ValueError):
+                        errors.append(
+                            f"Question {i}: OR group must be a positive integer when provided.",
+                        )
+                        or_group_val = None
 
                 if not q_text:
                     errors.append(
@@ -260,6 +376,7 @@ def create_exam_page():
                         "question_no": q_no,
                         "question_text": q_text,
                         "marks": marks_val,
+                        "or_group": or_group_val,
                     }
                 )
 
@@ -286,6 +403,7 @@ def create_exam_page():
                 # answer_text is NOT NULL continue to work.
                 answer_text="",
                 marks=item["marks"],
+                or_group=item.get("or_group"),
             )
             db.session.add(eq)
             rubric_parts.append(
@@ -384,7 +502,9 @@ def extract_questions_from_paper():
 
         import re
 
-        questions_out: list[dict] = []
+        # First pass: build raw question entries and detect standalone
+        # "OR" lines that indicate alternative questions.
+        tmp_items: list[dict] = []
         for q_no, q_text in segments:
             original_text = (q_text or "").strip()
             if not original_text:
@@ -394,29 +514,33 @@ def extract_questions_from_paper():
 
             # Try to extract marks from common patterns such as
             # "(5 marks)", plain "(3)" at the end of the question,
-            # "[5]", "5M", etc., taking the first plausible
-            # numeric value.
+            # "[5]", "5M", etc. If multiple marks are present in
+            # the same block (e.g. parts (a) and (b) each "(6)"), we
+            # treat the total marks for the question as the SUM of all
+            # detected values.
             marks_val = None
             patterns = [
                 r"\((\d+(?:\.\d+)?)\s*marks?\)",
-                r"\((\d+(?:\.\d+)?)\)\s*$",
+                r"\((\d+(?:\.\d+)?)\)",
                 r"\[(\d+(?:\.\d+)?)\]",
                 r"(\d+(?:\.\d+)?)\s*[Mm]arks?",
                 r"(\d+(?:\.\d+)?)\s*[Mm]",
             ]
+
+            all_marks: list[float] = []
             for pat in patterns:
-                m = re.search(pat, text)
-                if m:
+                for m in re.finditer(pat, text):
                     try:
-                        marks_val = float(m.group(1))
-                        # Strip the matched mark fragment (e.g. "(3)"
-                        # or "(3 marks)" or "3 marks") from the
-                        # question text so the stored question is
-                        # clean.
-                        text = text[: m.start()].rstrip()
-                        break
+                        all_marks.append(float(m.group(1)))
                     except (TypeError, ValueError):
-                        marks_val = None
+                        continue
+
+            if all_marks:
+                marks_val = float(sum(all_marks))
+                # Remove ALL explicit mark fragments so the question
+                # text shown in the UI is clean.
+                for pat in patterns:
+                    text = re.sub(pat, "", text).rstrip()
 
             # Extra heuristic for layouts where only a bare number
             # (e.g. "3") appears in the right-hand "Marks" column,
@@ -441,13 +565,70 @@ def extract_questions_from_paper():
                             # question.
                             text = re.sub(r"\b" + re.escape(m2.group(1)) + r"\s*$", "", text).rstrip()
 
-            questions_out.append(
+            # Detect if this question's original OCR block contains a
+            # standalone "OR" line. This commonly appears between
+            # main questions to indicate "Answer any one".
+            has_or_line = any(ln.strip().upper() == "OR" for ln in original_text.splitlines())
+
+            tmp_items.append(
                 {
                     "question_no": int(q_no),
                     "question_text": text,
                     "marks": marks_val,
+                    "_has_or": has_or_line,
                 }
             )
+
+        # Second pass: assign OR-group ids based on detected OR lines.
+        #
+        # Heuristic: when a question's OCR block contains a standalone
+        # "OR" line and there is a following question, treat this
+        # pair as alternatives (same OR group). This works well for
+        # layouts where "OR" appears between two numbered questions.
+        questions_out: list[dict] = []
+        next_group_id = 1
+        i = 0
+        while i < len(tmp_items):
+            item = dict(tmp_items[i])
+            or_group_val = None
+
+            if item.get("_has_or") and i + 1 < len(tmp_items):
+                or_group_val = next_group_id
+                # Also assign the same group id to the immediate next
+                # question.
+                next_item = dict(tmp_items[i + 1])
+                next_item["or_group"] = or_group_val
+                next_item.pop("_has_or", None)
+                questions_out.append(
+                    {
+                        "question_no": item["question_no"],
+                        "question_text": item["question_text"],
+                        "marks": item["marks"],
+                        "or_group": or_group_val,
+                    }
+                )
+                questions_out.append(
+                    {
+                        "question_no": next_item["question_no"],
+                        "question_text": next_item["question_text"],
+                        "marks": next_item["marks"],
+                        "or_group": or_group_val,
+                    }
+                )
+                next_group_id += 1
+                i += 2
+                continue
+
+            item.pop("_has_or", None)
+            questions_out.append(
+                {
+                    "question_no": item["question_no"],
+                    "question_text": item["question_text"],
+                    "marks": item["marks"],
+                    "or_group": None,
+                }
+            )
+            i += 1
 
         return jsonify({"questions": questions_out, "ocr_confidence": confidence})
     finally:
@@ -494,43 +675,208 @@ def manage_students():
     """List students and allow teachers/admins to add new ones.
 
     The page also supports simple filtering by course and semester so
-    teachers can quickly find students by department/section.
+    teachers can quickly find students by department/section. It also
+    supports bulk creation via OCR of an uploaded image.
     """
 
     if request.method == "POST":
-        name = (request.form.get("name") or "").strip()
-        roll_no = (request.form.get("roll_no") or "").strip()
-        course = (request.form.get("course") or "").strip()
-        semester = (request.form.get("semester") or "").strip()
+        action = (request.form.get("action") or "single_add").strip()
 
-        errors = []
-        if not name:
-            errors.append("Name is required.")
-        if not roll_no:
-            errors.append("Roll number is required.")
-        if not course:
-            errors.append("Course is required.")
-        if not semester:
-            errors.append("Semester is required.")
+        if action == "single_add":
+            name = (request.form.get("name") or "").strip()
+            roll_no = (request.form.get("roll_no") or "").strip()
+            course = (request.form.get("course") or "").strip()
+            semester = (request.form.get("semester") or "").strip()
 
-        if Student.query.filter_by(roll_no=roll_no).first() is not None:
-            errors.append("A student with this roll number already exists.")
+            errors: list[str] = []
+            if not name:
+                errors.append("Name is required.")
+            if not roll_no:
+                errors.append("Roll number is required.")
+            if not course:
+                errors.append("Course is required.")
+            if not semester:
+                errors.append("Semester is required.")
 
-        if errors:
-            for e in errors:
-                flash(e, "error")
-        else:
-            student = Student(
-                name=name,
-                roll_no=roll_no,
-                course=course,
-                semester=semester,
-            )
-            db.session.add(student)
-            db.session.commit()
-            flash("Student added successfully.", "success")
+            if Student.query.filter_by(roll_no=roll_no).first() is not None:
+                errors.append("A student with this roll number already exists.")
 
-        return redirect(url_for("web.manage_students"))
+            if errors:
+                for e in errors:
+                    flash(e, "error")
+            else:
+                student = Student(
+                    name=name,
+                    roll_no=roll_no,
+                    course=course,
+                    semester=semester,
+                )
+                db.session.add(student)
+                db.session.commit()
+                flash("Student added successfully.", "success")
+
+            return redirect(url_for("web.manage_students"))
+
+        if action == "ocr_extract":
+            ocr_course = (request.form.get("ocr_course") or "").strip()
+            ocr_semester = (request.form.get("ocr_semester") or "").strip()
+            file = request.files.get("ocr_image")
+
+            if not file or file.filename == "":
+                flash("Please choose an image file for OCR.", "error")
+                return redirect(url_for("web.manage_students"))
+
+            fd, tmp_path = tempfile.mkstemp(suffix=os.path.splitext(file.filename)[1] or ".png")
+            os.close(fd)
+            try:
+                file.save(tmp_path)
+
+                # Prefer Gemini Vision for structured extraction. If it is
+                # misconfigured or fails, fall back to local OCR + regex.
+                confidence = 0.0
+                students_raw: list[dict[str, str]] | None = None
+                try:  # pragma: no cover - depends on external API
+                    from gemini_ocr_client import (
+                        GeminiConfigError,
+                        extract_students_from_image,
+                    )
+
+                    students_raw = extract_students_from_image(tmp_path)
+                    # Heuristic confidence for UI purposes only.
+                    confidence = 0.95 if students_raw else 0.0
+                except GeminiConfigError as exc:
+                    current_app.logger.warning(
+                        "Gemini for student OCR not configured, using local OCR: %s",
+                        exc,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    current_app.logger.exception(
+                        "Gemini student OCR failed, falling back to local OCR: %s",
+                        exc,
+                    )
+
+                if students_raw is None:
+                    text, confidence = run_ocr(tmp_path)
+                    students_raw = _parse_students_from_ocr_text(text)
+
+                if not students_raw:
+                    flash(
+                        "No valid 'Name - RollNumber' lines were found in the extracted text.",
+                        "error",
+                    )
+                    return redirect(url_for("web.manage_students"))
+
+                # Mark which roll numbers already exist in the database
+                roll_nos = [s["roll_no"] for s in students_raw]
+                existing = (
+                    Student.query.filter(Student.roll_no.in_(roll_nos)).all()
+                    if roll_nos
+                    else []
+                )
+                existing_rolls = {s.roll_no for s in existing}
+
+                ocr_candidates: list[dict] = []
+                addable: list[dict] = []
+                for item in students_raw:
+                    exists = item["roll_no"] in existing_rolls
+                    record = {
+                        "name": item["name"],
+                        "roll_no": item["roll_no"],
+                        "exists": exists,
+                    }
+                    ocr_candidates.append(record)
+                    if not exists:
+                        addable.append(record)
+
+                if not addable:
+                    flash("All extracted students already exist. Nothing to add.", "info")
+                    return redirect(url_for("web.manage_students"))
+
+                # Build filter options for the page render
+                course_filter = (request.args.get("course") or "").strip()
+                semester_filter = (request.args.get("semester") or "").strip()
+
+                query = Student.query
+                if course_filter:
+                    query = query.filter(Student.course == course_filter)
+                if semester_filter:
+                    query = query.filter(Student.semester == semester_filter)
+
+                students = query.order_by(Student.roll_no.asc()).all()
+
+                courses = [
+                    row[0]
+                    for row in db.session.query(Student.course)
+                    .distinct()
+                    .order_by(Student.course.asc())
+                    .all()
+                ]
+                semesters = [
+                    row[0]
+                    for row in db.session.query(Student.semester)
+                    .distinct()
+                    .order_by(Student.semester.asc())
+                    .all()
+                ]
+
+                return render_template(
+                    "students_manage.html",
+                    students=students,
+                    courses=courses,
+                    semesters=semesters,
+                    selected_course=course_filter,
+                    selected_semester=semester_filter,
+                    ocr_candidates=ocr_candidates,
+                    ocr_addable=addable,
+                    ocr_course=ocr_course,
+                    ocr_semester=ocr_semester,
+                    ocr_confidence=confidence,
+                )
+            finally:
+                try:
+                    if os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+                except OSError:
+                    current_app.logger.info(
+                        "Could not remove temporary student OCR image: %s", tmp_path
+                    )
+
+        if action == "ocr_add":
+            ocr_course = (request.form.get("ocr_course") or "").strip()
+            ocr_semester = (request.form.get("ocr_semester") or "").strip()
+            payload_raw = request.form.get("ocr_payload") or "[]"
+
+            try:
+                records = json.loads(payload_raw)
+            except Exception:  # noqa: BLE001
+                flash("Invalid OCR data submitted. Please extract again.", "error")
+                return redirect(url_for("web.manage_students"))
+
+            created_count = 0
+            for item in records:
+                name = (item.get("name") or "").strip()
+                roll_no = (item.get("roll_no") or "").strip()
+                if not name or not roll_no:
+                    continue
+                if Student.query.filter_by(roll_no=roll_no).first() is not None:
+                    continue
+
+                student = Student(
+                    name=name,
+                    roll_no=roll_no,
+                    course=ocr_course,
+                    semester=ocr_semester,
+                )
+                db.session.add(student)
+                created_count += 1
+
+            if created_count:
+                db.session.commit()
+                flash(f"Added {created_count} students from OCR.", "success")
+            else:
+                flash("No new students were added from OCR data.", "info")
+
+            return redirect(url_for("web.manage_students"))
 
     # Build filter options
     course_filter = (request.args.get("course") or "").strip()
@@ -542,7 +888,7 @@ def manage_students():
     if semester_filter:
         query = query.filter(Student.semester == semester_filter)
 
-    students = query.order_by(Student.student_id.asc()).all()
+    students = query.order_by(Student.roll_no.asc()).all()
 
     courses = [row[0] for row in db.session.query(Student.course).distinct().order_by(Student.course.asc()).all()]
     semesters = [row[0] for row in db.session.query(Student.semester).distinct().order_by(Student.semester.asc()).all()]
@@ -554,6 +900,11 @@ def manage_students():
         semesters=semesters,
         selected_course=course_filter,
         selected_semester=semester_filter,
+        ocr_candidates=None,
+        ocr_addable=None,
+        ocr_course=None,
+        ocr_semester=None,
+        ocr_confidence=None,
     )
 
 
@@ -686,6 +1037,11 @@ def upload_page():
                 exams = Exam.query.order_by(Exam.exam_id.asc()).all()
                 return render_template("upload.html", exams=exams)
 
+            # Absolute path to the uploaded answer sheet file (image or PDF)
+            upload_folder = current_app.config["UPLOAD_FOLDER"]
+            sheet_filename = os.path.basename(sheet.file_path)
+            sheet_abs_path = os.path.join(upload_folder, sheet_filename)
+
             exam = sheet.exam
             extracted = sheet.extracted_text
 
@@ -747,7 +1103,10 @@ def upload_page():
                             }
                         )
 
-                    gemini_result = evaluate_answers_with_gemini(payload_items)
+                    gemini_result = evaluate_answers_with_gemini(
+                        payload_items,
+                        sheet_image_path=sheet_abs_path,
+                    )
                     questions_out = gemini_result.get("questions", []) or []
 
                     per_q = []
@@ -787,9 +1146,10 @@ def upload_page():
                             }
                         )
 
-                    # Always compute total as the sum of per-question
-                    # scores after any scaling.
-                    total_score = sum(p["score"] for p in per_q) if per_q else 0.0
+                    # Apply OR-group semantics so that for any set of
+                    # alternative questions, only the highest-scoring
+                    # one contributes to the total.
+                    per_q, total_score = _apply_or_group_scoring(exam_questions, per_q)
 
                     final_score = round(float(total_score), 2)
                     # Keep overall feedback minimal; detailed comments are
@@ -806,6 +1166,9 @@ def upload_page():
                         extracted.cleaned_text,
                         model_answer_text,
                     )
+                    if exam_questions:
+                        per_q, total_score = _apply_or_group_scoring(exam_questions, per_q)
+                        final_score = round(float(total_score), 2)
                 except Exception as exc:  # noqa: BLE001
                     current_app.logger.exception(
                         "Gemini evaluation failed, falling back to heuristic scoring: %s",
@@ -816,6 +1179,9 @@ def upload_page():
                         extracted.cleaned_text,
                         model_answer_text,
                     )
+                    if exam_questions:
+                        per_q, total_score = _apply_or_group_scoring(exam_questions, per_q)
+                        final_score = round(float(total_score), 2)
             else:
                 # No structured exam questions; fall back to simple heuristic.
                 model_answer_text = exam.rubric_details or "Reference answer not provided."
@@ -1110,6 +1476,8 @@ def lookup_student_by_roll():
 @role_required_view({UserRole.TEACHER})
 def review_page(sheet_id: int):
     sheet = AnswerSheet.query.get_or_404(sheet_id)
+    user = session.get("user") or {}
+    teacher_name = user.get("name") or None
 
     if sheet.status not in {AnswerSheetStatus.GRADED, AnswerSheetStatus.REVIEWED}:
         flash("Only graded or reviewed answer sheets can be reviewed.", "error")
@@ -1131,13 +1499,34 @@ def review_page(sheet_id: int):
             q_no: ans for q_no, ans in split_numbered_answers(extracted.raw_text)
         }
 
+        # Look up OR-group information for this exam so the review page
+        # can indicate which questions are alternatives (e.g. "1 OR 2").
+        exam_questions = ExamQuestion.query.filter_by(exam_id=sheet.exam_id).all()
+        or_by_q: dict[int, int | None] = {
+            eq.question_no: eq.or_group for eq in exam_questions
+        }
+        group_members: dict[int, list[int]] = {}
+        for eq in exam_questions:
+            if eq.or_group is None:
+                continue
+            group_members.setdefault(eq.or_group, []).append(eq.question_no)
+
         for qe in sorted(evaluation.question_scores, key=lambda x: x.question_no):
+            q_no = qe.question_no
+            or_group = or_by_q.get(q_no)
+            or_peers: list[int] = []
+            if or_group is not None:
+                members = group_members.get(or_group, [])
+                or_peers = sorted(q for q in members if q != q_no)
+
             per_question_details.append(
                 {
-                    "question_no": qe.question_no,
-                    "answer_text": answers_by_q.get(qe.question_no, ""),
+                    "question_no": q_no,
+                    "answer_text": answers_by_q.get(q_no, ""),
                     "score": qe.score,
                     "feedback": qe.feedback or "",
+                    "or_group": or_group,
+                    "or_peers": or_peers,
                 }
             )
 
@@ -1226,6 +1615,8 @@ def review_page(sheet_id: int):
             evaluation.feedback or ""
         ) + " (Adjusted via question-wise review.)"
         evaluation.evaluated_on = datetime.utcnow()
+        if teacher_name:
+            evaluation.reviewed_by = teacher_name
         sheet.status = AnswerSheetStatus.REVIEWED
 
         # Ensure the per-exam report reflects the updated total score
@@ -1447,22 +1838,59 @@ def student_exam_report(exam_id: int):
 
     per_question_details = []
     evaluation = None
+    evaluator_label: str | None = None
     teacher_feedback_by_q: dict[int, str] = {}
     if sheet is not None and sheet.extracted_text is not None:
         extracted = sheet.extracted_text
         evaluation = extracted.evaluation
         if evaluation is not None:
+            # Prefer to show the teacher's name only. The UI already
+            # labels the field as "Evaluated By", so we don't need a
+            # "Reviewed by" prefix here.
+            if getattr(evaluation, "reviewed_by", None):
+                evaluator_label = evaluation.reviewed_by
+            elif sheet.status == AnswerSheetStatus.REVIEWED:
+                evaluator_label = "Teacher-reviewed"
+            else:
+                evaluator_label = "Auto-evaluated using Gemini"
+
+            # Map question numbers to their maximum marks and OR groups from
+            # the exam definition.
+            marks_by_q: dict[int, float | None] = {}
+            or_by_q: dict[int, int | None] = {}
+            group_members: dict[int, list[int]] = {}
+            if exam is not None:
+                for q in sorted(getattr(exam, "questions", []), key=lambda q: q.question_no):
+                    marks_by_q[q.question_no] = float(q.marks) if q.marks is not None else None
+                    or_by_q[q.question_no] = getattr(q, "or_group", None)
+                    if q.or_group is not None:
+                        group_members.setdefault(q.or_group, []).append(q.question_no)
+
             # Use raw OCR text so question numbers align exactly with stored scores
             answers_by_q = {
                 q_no: ans for q_no, ans in split_numbered_answers(extracted.raw_text)
             }
             for qe in sorted(evaluation.question_scores, key=lambda x: x.question_no):
+                q_no = qe.question_no
+                max_marks_val = None
+                if exam is not None:
+                    max_marks_val = marks_by_q.get(q_no)
+
+                or_group = or_by_q.get(q_no)
+                or_peers: list[int] = []
+                if or_group is not None:
+                    members = group_members.get(or_group, [])
+                    or_peers = sorted(q for q in members if q != q_no)
+
                 per_question_details.append(
                     {
-                        "question_no": qe.question_no,
-                        "answer_text": answers_by_q.get(qe.question_no, ""),
+                        "question_no": q_no,
+                        "answer_text": answers_by_q.get(q_no, ""),
                         "score": qe.score,
+                        "max_marks": max_marks_val,
                         "feedback": qe.feedback or "",
+                        "or_group": or_group,
+                        "or_peers": or_peers,
                     }
                 )
 
@@ -1498,6 +1926,7 @@ def student_exam_report(exam_id: int):
         sheet=sheet,
         evaluation=evaluation,
         per_question_details=per_question_details,
+        evaluator_label=evaluator_label,
         existing_comments=existing_comments,
         remaining_comment_slots=remaining_comment_slots,
         teacher_feedback_by_q=teacher_feedback_by_q,
@@ -1582,22 +2011,57 @@ def teacher_report(student_id: int, exam_id: int):
 
     per_question_details = []
     evaluation = None
+    evaluator_label: str | None = None
     if sheet is not None and sheet.extracted_text is not None:
         extracted = sheet.extracted_text
         evaluation = extracted.evaluation
         if evaluation is not None:
+            # Prefer to show the teacher's name only. The UI already
+            # labels the field as "Evaluated By".
+            if getattr(evaluation, "reviewed_by", None):
+                evaluator_label = evaluation.reviewed_by
+            elif sheet.status == AnswerSheetStatus.REVIEWED:
+                evaluator_label = "Teacher-reviewed"
+            else:
+                evaluator_label = "Auto-evaluated using Gemini"
+
+            # Map question numbers to their maximum marks and OR groups from the exam definition.
+            marks_by_q: dict[int, float | None] = {}
+            or_by_q: dict[int, int | None] = {}
+            group_members: dict[int, list[int]] = {}
+            if exam is not None:
+                for q in sorted(getattr(exam, "questions", []), key=lambda q: q.question_no):
+                    marks_by_q[q.question_no] = float(q.marks) if q.marks is not None else None
+                    or_by_q[q.question_no] = getattr(q, "or_group", None)
+                    if q.or_group is not None:
+                        group_members.setdefault(q.or_group, []).append(q.question_no)
+
             # Use raw OCR text so question numbers align exactly with stored scores
             answers_by_q = {
                 q_no: ans
                 for q_no, ans in split_numbered_answers(extracted.raw_text)
             }
             for qe in sorted(evaluation.question_scores, key=lambda x: x.question_no):
+                q_no = qe.question_no
+                max_marks_val = None
+                if exam is not None:
+                    max_marks_val = marks_by_q.get(q_no)
+
+                or_group = or_by_q.get(q_no)
+                or_peers: list[int] = []
+                if or_group is not None:
+                    members = group_members.get(or_group, [])
+                    or_peers = sorted(q for q in members if q != q_no)
+
                 per_question_details.append(
                     {
-                        "question_no": qe.question_no,
-                        "answer_text": answers_by_q.get(qe.question_no, ""),
+                        "question_no": q_no,
+                        "answer_text": answers_by_q.get(q_no, ""),
                         "score": qe.score,
+                        "max_marks": max_marks_val,
                         "feedback": qe.feedback or "",
+                        "or_group": or_group,
+                        "or_peers": or_peers,
                     }
                 )
 
@@ -1609,6 +2073,7 @@ def teacher_report(student_id: int, exam_id: int):
         sheet=sheet,
         evaluation=evaluation,
         per_question_details=per_question_details,
+        evaluator_label=evaluator_label,
     )
 
 

@@ -276,7 +276,7 @@
                     <thead>
                         <tr>
                             <th>Exam</th>
-                            <th>Total Score</th>
+                            <th>Score</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -287,7 +287,14 @@
                                         {{ report.exam.subject if report.exam else report.exam_id }}
                                     </a>
                                 </td>
-                                <td><strong>{{ report.total_score }}</strong></td>
+                                <td>
+                                    <strong>
+                                        {{ report.total_score }}
+                                        {% if report.exam and report.exam.max_marks is not none %}
+                                            / {{ report.exam.max_marks }}
+                                        {% endif %}
+                                    </strong>
+                                </td>
                             </tr>
                         {% else %}
                             <tr>

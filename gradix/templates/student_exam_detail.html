@@ -165,12 +165,23 @@
                 </div>
                 <div class="info-item">
                     <label>Total Score</label>
-                    <span>{{ report.total_score }}</span>
+                    <span>
+                        {{ report.total_score }}
+                        {% if exam and exam.max_marks is not none %}
+                            / {{ exam.max_marks }}
+                        {% endif %}
+                    </span>
                 </div>
                 <div class="info-item">
                     <label>Status</label>
                     <span>{{ sheet.status.value if sheet else 'Not Reviewed' }}</span>
                 </div>
+                {% if evaluator_label %}
+                <div class="info-item">
+                    <label>Evaluated By</label>
+                    <span>{{ evaluator_label }}</span>
+                </div>
+                {% endif %}
             </div>
 
             <h2>Overall Remarks</h2>
@@ -182,55 +193,7 @@
                 <p class="empty-text">No remarks recorded for this exam.</p>
             {% endif %}
 
-            <h2>Question-wise Evaluation</h2>
-            {% if per_question_details %}
-                <div class="table-container">
-                    <table cellspacing="0">
-                        <thead>
-                            <tr>
-                                <th>Q.No</th>
-                                <th>Answer (excerpt)</th>
-                                <th>Score</th>
-                                <th>Teacher Comment</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for item in per_question_details %}
-                                <tr>
-                                    <td>{{ item.question_no }}</td>
-                                    <td>{{ item.answer_text[:160] }}{% if item.answer_text|length > 160 %}...{% endif %}</td>
-                                    <td><strong>{{ '%.2f'|format(item.score) }}</strong></td>
-                                    <td>{{ item.feedback }}</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            {% else %}
-                <p class="empty-text">Detailed question-wise marks are not available for this exam yet.</p>
-            {% endif %}
             {% if sheet %}
-                {% if file_url %}
-                    <h2>Uploaded Answer Sheet</h2>
-                    <div class="table-container" style="padding:16px;">
-                        <p style="font-size:13px; color:var(--text-sub); margin-bottom:8px;">
-                            This is the answer sheet that was uploaded for this exam.
-                        </p>
-                        <p style="margin-bottom:10px;">
-                            <a href="{{ file_url }}" target="_blank" style="color:var(--primary-color); font-weight:600; text-decoration:none;">
-                                Open in new tab
-                            </a>
-                        </p>
-                        <div>
-                            {% if '.pdf' in file_url|lower %}
-                                <iframe src="{{ file_url }}" style="width:100%; height:480px; border:none; border-radius:8px; background:#0f172a;"></iframe>
-                            {% else %}
-                                <img src="{{ file_url }}" alt="Uploaded answer sheet" style="max-width:100%; border-radius:8px; display:block;">
-                            {% endif %}
-                        </div>
-                    </div>
-                {% endif %}
-
                 <h2>Student Comments to Teacher</h2>
                 {% if existing_comments and existing_comments|length > 0 %}
                     <div class="table-container">
@@ -283,6 +246,70 @@
                 {% else %}
                     <p class="empty-text">You have already used your 2 comments for this exam.</p>
                 {% endif %}
+            {% endif %}
+
+            <h2>Question-wise Evaluation</h2>
+            {% if per_question_details %}
+                <div class="table-container">
+                    <table cellspacing="0">
+                        <thead>
+                            <tr>
+                                <th>Q.No</th>
+                                <th>Answer (excerpt)</th>
+                                <th>Score</th>
+                                <th>Teacher Comment</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in per_question_details %}
+                                <tr>
+                                    <td>
+                                        {{ item.question_no }}
+                                        {% if item.or_peers %}
+                                            <div style="font-size:11px; color:#64748b; margin-top:2px;">
+                                                OR with
+                                                {{ item.or_peers | sort | join(', ') }}
+                                            </div>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ item.answer_text[:160] }}{% if item.answer_text|length > 160 %}...{% endif %}</td>
+                                    <td>
+                                        <strong>
+                                            {{ '%.2f'|format(item.score) }}
+                                            {% if item.max_marks is not none %}
+                                                / {{ '%.2f'|format(item.max_marks) }}
+                                            {% endif %}
+                                        </strong>
+                                    </td>
+                                    <td>{{ item.feedback }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="empty-text">Detailed question-wise marks are not available for this exam yet.</p>
+            {% endif %}
+
+            {% if sheet and file_url %}
+                <h2>Uploaded Answer Sheet</h2>
+                <div class="table-container" style="padding:16px;">
+                    <p style="font-size:13px; color:var(--text-sub); margin-bottom:8px;">
+                        This is the answer sheet that was uploaded for this exam.
+                    </p>
+                    <p style="margin-bottom:10px;">
+                        <a href="{{ file_url }}" target="_blank" style="color:var(--primary-color); font-weight:600; text-decoration:none;">
+                            Open in new tab
+                        </a>
+                    </p>
+                    <div>
+                        {% if '.pdf' in file_url|lower %}
+                            <iframe src="{{ file_url }}" style="width:100%; height:480px; border:none; border-radius:8px; background:#0f172a;"></iframe>
+                        {% else %}
+                            <img src="{{ file_url }}" alt="Uploaded answer sheet" style="max-width:100%; border-radius:8px; display:block;">
+                        {% endif %}
+                    </div>
+                </div>
             {% endif %}
         {% else %}
             <p class="empty-text">No student record linked to this account.</p>

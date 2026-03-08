@@ -362,6 +362,7 @@
                 const qNo = q && q.question_no ? q.question_no : i;
                 const qText = q && q.question_text ? q.question_text : '';
                 const qMarks = q && typeof q.marks !== 'undefined' && q.marks !== null ? q.marks : '';
+                const qOrGroup = q && typeof q.or_group !== 'undefined' && q.or_group !== null ? q.or_group : '';
 
                 block.innerHTML = `
                     <div class="question-header">Question ${qNo}</div>
@@ -369,6 +370,10 @@
                     <div class="form-group-inline">
                         <label>Marks</label>
                         <input type="number" name="marks_${i}" min="0.5" step="0.5" required placeholder="e.g. 2" value="${qMarks}">
+                    </div>
+                    <div class="form-group-inline">
+                        <label>OR Group <span>(optional – same number for alternative questions)</span></label>
+                        <input type="number" name="or_group_${i}" min="1" step="1" placeholder="e.g. 1" value="${qOrGroup}">
                     </div>
                     <div class="form-group-inline">
                         <label>Question Text</label>

@@ -189,12 +189,23 @@
                 </div>
                 <div class="info-item">
                     <label>Total Score</label>
-                    <span>{{ report.total_score }}</span>
+                    <span>
+                        {{ report.total_score }}
+                        {% if exam and exam.max_marks is not none %}
+                            / {{ exam.max_marks }}
+                        {% endif %}
+                    </span>
                 </div>
                 <div class="info-item">
                     <label>Status</label>
                     <span>{{ sheet.status.value if sheet else 'Not Reviewed' }}</span>
                 </div>
+                {% if evaluator_label %}
+                <div class="info-item">
+                    <label>Evaluated By</label>
+                    <span>{{ evaluator_label }}</span>
+                </div>
+                {% endif %}
             </div>
 
             <h2>Overall Remarks</h2>
@@ -221,9 +232,24 @@
                         <tbody>
                             {% for item in per_question_details %}
                                 <tr>
-                                    <td>{{ item.question_no }}</td>
+                                    <td>
+                                        {{ item.question_no }}
+                                        {% if item.or_peers %}
+                                            <div style="font-size:11px; color:#64748b; margin-top:2px;">
+                                                OR with
+                                                {{ item.or_peers | sort | join(', ') }}
+                                            </div>
+                                        {% endif %}
+                                    </td>
                                     <td>{{ item.answer_text[:160] }}{% if item.answer_text|length > 160 %}...{% endif %}</td>
-                                    <td><strong>{{ '%.2f'|format(item.score) }}</strong></td>
+                                    <td>
+                                        <strong>
+                                            {{ '%.2f'|format(item.score) }}
+                                            {% if item.max_marks is not none %}
+                                                / {{ '%.2f'|format(item.max_marks) }}
+                                            {% endif %}
+                                        </strong>
+                                    </td>
                                     <td>{{ item.feedback }}</td>
                                 </tr>
                             {% endfor %}

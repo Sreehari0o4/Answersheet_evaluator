@@ -126,6 +126,22 @@
             background-color: #f8fafc;
         }
 
+        .or-row td {
+            text-align: center;
+            font-weight: 700;
+            color: #1d4ed8;
+            background-color: #ffffff; /* white behind OR text */
+            border-bottom: 1px dashed #cbd5e1;
+            letter-spacing: 0.1em;
+            padding: 6px 14px; /* slightly tighter than normal rows */
+        }
+
+        .group-gap-row td {
+            padding: 10px 0; /* extra white space between question blocks */
+            border: none;
+            background-color: #eff6ff; /* soft blue separator between question groups */
+        }
+
         .marks-pill {
             display: inline-block;
             padding: 4px 8px;
@@ -183,6 +199,18 @@
                             {% endif %}
                         </td>
                     </tr>
+                    {% if not loop.last %}
+                        {% set next_q = questions[loop.index0 + 1] %}
+                        {% if q.or_group is not none and next_q.or_group is not none and q.or_group == next_q.or_group %}
+                            <tr class="or-row">
+                                <td colspan="4">OR</td>
+                            </tr>
+                        {% elif (q.or_group != next_q.or_group) %}
+                            <tr class="group-gap-row">
+                                <td colspan="4"></td>
+                            </tr>
+                        {% endif %}
+                    {% endif %}
                     {% endfor %}
                 </tbody>
             </table>

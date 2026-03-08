@@ -400,6 +400,12 @@
                                     <tr class="{% if commented_q_nos and item.question_no in commented_q_nos %}question-row-highlight{% endif %}">
                                         <td style="padding:10px 12px; border-bottom:1px solid #e2e8f0;">
                                             {{ item.question_no }}
+                                            {% if item.or_peers %}
+                                                <div style="font-size:11px; color:#64748b; margin-top:2px;">
+                                                    OR with
+                                                    {{ item.or_peers | sort | join(', ') }}
+                                                </div>
+                                            {% endif %}
                                             <input type="hidden" name="question_no" value="{{ item.question_no }}">
                                             {% if commented_q_nos and item.question_no in commented_q_nos %}
                                                 <div class="student-review-badge">Student asked to review</div>
@@ -435,7 +441,15 @@
                         <tbody>
                             {% for item in per_question_details %}
                                 <tr>
-                                    <td style="padding:10px 12px; border-bottom:1px solid #e2e8f0;">{{ item.question_no }}</td>
+                                    <td style="padding:10px 12px; border-bottom:1px solid #e2e8f0;">
+                                        {{ item.question_no }}
+                                        {% if item.or_peers %}
+                                            <div style="font-size:11px; color:#64748b; margin-top:2px;">
+                                                OR with
+                                                {{ item.or_peers | sort | join(', ') }}
+                                            </div>
+                                        {% endif %}
+                                    </td>
                                     <td style="padding:10px 12px; border-bottom:1px solid #e2e8f0; color:#475569; max-width:260px;">
                                         {{ item.answer_text[:160] }}{% if item.answer_text|length > 160 %}...{% endif %}
                                     </td>

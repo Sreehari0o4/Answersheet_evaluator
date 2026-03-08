@@ -141,7 +141,12 @@ def split_numbered_answers(text: str):
     if not text or not text.strip():
         return []
 
-    pattern = re.compile(r"(?m)^\s*(\d+)[\).\s]+")
+    # Match any line that starts with an integer question number,
+    # regardless of what follows ("1.", "1)", "1(a)", etc.). We
+    # then manually skip standard punctuation/whitespace after the
+    # number so that patterns like "1(a)" keep the "(a)" as part of
+    # the answer text, while "1." / "1)" lose the punctuation.
+    pattern = re.compile(r"(?m)^\s*(\d+)")
     matches = list(pattern.finditer(text))
 
     if not matches:
@@ -151,6 +156,11 @@ def split_numbered_answers(text: str):
     for i, match in enumerate(matches):
         q_no = int(match.group(1))
         start = match.end()
+        # Skip common delimiter characters directly after the number
+        # (".", ")", spaces, tabs). For "1(a)" this leaves the
+        # "(a)" intact; for "1." it removes the dot and spaces.
+        while start < len(text) and text[start] in ".) \t":
+            start += 1
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         answer = text[start:end].strip()
         if answer:

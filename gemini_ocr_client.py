@@ -18,6 +18,7 @@ Configuration (loaded via .env):
 from __future__ import annotations
 
 import os
+import json
 from typing import Any, Iterable
 
 from PIL import Image
@@ -88,10 +89,68 @@ def extract_text(image_path: str, *, model_name: str = "gemini-2.5-flash") -> st
     return str(text).strip()
 
 
+def extract_students_from_image(
+    image_path: str,
+    *,
+    model_name: str = "gemini-2.5-flash",
+) -> list[dict[str, str]]:
+    """Use Gemini Vision to extract students from a handwritten list image.
+
+    The image is expected to contain one student per row with a name and
+    a roll number (for example "SREERAG - 20422088"). Separators can be
+    dashes, colons, or just spaces; Gemini will infer the structure.
+
+    Returns a list of dicts with keys ``name`` and ``roll_no``. Any
+    parsing/validation beyond that should be handled by the caller.
+    """
+
+    api_key = _get_api_key()
+    genai.configure(api_key=api_key)
+
+    model = genai.GenerativeModel(model_name)
+
+    img = Image.open(image_path)
+
+    prompt = (
+        "You are reading a photo of a handwritten student list. "
+        "Each entry has a student name and a roll number. "
+        "Extract all clearly readable entries and return ONLY JSON with "
+        "this structure: {\"students\":[{\"name\":str,\"roll_no\":str}]}. "
+        "Do not include any explanations or extra keys. "
+        "Trim whitespace; keep roll_no exactly as written (digits only)."
+    )
+
+    response = model.generate_content(
+        [prompt, img],
+        generation_config={
+            "temperature": 0.1,
+            "response_mime_type": "application/json",
+        },
+    )
+
+    raw: Any = response.text or "{}"
+    try:
+        data = json.loads(str(raw))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"Gemini student extraction returned invalid JSON: {exc}")
+
+    students = data.get("students") or []
+    out: list[dict[str, str]] = []
+    for item in students:
+        name = str(item.get("name") or "").strip()
+        roll_no = str(item.get("roll_no") or "").strip()
+        if not name or not roll_no:
+            continue
+        out.append({"name": name, "roll_no": roll_no})
+
+    return out
+
+
 def evaluate_answers_with_gemini(
     per_question_items: Iterable[dict[str, Any]],
     *,
     model_name: str = "gemini-2.5-flash",
+    sheet_image_path: str | None = None,
 ) -> dict[str, Any]:
     """Call Gemini to score answers per question.
 
@@ -140,8 +199,9 @@ def evaluate_answers_with_gemini(
             "You are an experienced exam evaluator. For each question you are given "
             "the question text, a model answer, the maximum marks, and the student's "
             "answer. Grade strictly against the model answer. "
-            "Student answers may be written as bullet points or in table form; "
-            "treat those as normal text and grade their content."
+            "Student answers may be written as bullet points, in table form, or "
+            "partly as diagrams; treat those as normal content and grade their "
+            "meaning, not their format."
         )
     else:
         lines.append(
@@ -150,9 +210,31 @@ def evaluate_answers_with_gemini(
             "There is no explicit model answer; grade based on what a well-" \
             "prepared student should write for that question, focusing on "
             "conceptual correctness, completeness, and clarity. "
-            "Student answers may include bullet lists or tables; treat these "
-            "as valid text, not as missing answers."
+            "Student answers may include bullet lists, tables, or diagrams; "
+            "treat these as valid content, not as missing answers."
         )
+
+    # Step-wise marking rules for numerical/mathematical questions.
+    lines.append(
+        "When a question is mathematical or numerical, apply strict university-"
+        "style step-wise marking: award marks for correct formulas, substitutions, "
+        "intermediate steps, and the final result; do not give full marks for only "
+        "the final answer if steps or formulas are missing; deduct marks when "
+        "calculations or reasoning steps are skipped; give partial marks when the "
+        "method is correct but there are minor arithmetic mistakes; and if the "
+        "final answer is correct but steps are incomplete, deduct 1–2 marks as "
+        "appropriate."
+    )
+
+    # In general, mark strictly rather than generously: vague, off-topic,
+    # or incomplete answers should receive low scores, and full marks should
+    # be reserved only for answers that clearly meet all key points expected
+    # for the given max_marks.
+    lines.append(
+        "Be strict, not lenient: only award full marks when the student's answer "
+        "is complete and clearly correct; give low or zero marks when important "
+        "steps, justifications, or key concepts are missing."
+    )
 
     lines.append(
         "For each question, output a JSON object with: question_no (int), "
@@ -169,6 +251,16 @@ def evaluate_answers_with_gemini(
         "{\"questions\":[{\"question_no\":int,\"score\":float,\"feedback\":str}],"
         " \"total_score\": float}."
     )
+
+    if sheet_image_path:
+        lines.append(
+            "You also have the full scanned answer sheet attached as an image or "
+            "PDF. When grading each question, read the student's answer directly "
+            "from the sheet, including any ray diagrams, graphs, labelled figures, "
+            "or other visual elements. If the OCR text above misses details that "
+            "are clearly shown in the diagrams or handwriting, use the sheet image "
+            "as the source of truth."
+        )
     lines.append("")
 
     for item in items:
@@ -192,8 +284,22 @@ def evaluate_answers_with_gemini(
 
     prompt = "\n".join(lines)
 
+    # If a sheet image/PDF is provided, call Gemini in multimodal mode so
+    # diagrams and handwritten content on the sheet can be considered during
+    # grading. Otherwise, fall back to text-only grading.
+    if sheet_image_path:
+        ext = os.path.splitext(sheet_image_path)[1].lower()
+        if ext == ".pdf":
+            file_obj = genai.upload_file(path=sheet_image_path)
+            gen_inputs: list[Any] = [prompt, file_obj]
+        else:
+            img = Image.open(sheet_image_path)
+            gen_inputs = [prompt, img]
+    else:
+        gen_inputs = [prompt]
+
     response = model.generate_content(
-        [prompt],
+        gen_inputs,
         generation_config={
             "temperature": 0.1,
             "response_mime_type": "application/json",

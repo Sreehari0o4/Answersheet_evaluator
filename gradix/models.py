@@ -56,6 +56,13 @@ class ExamQuestion(db.Model):
     answer_text = db.Column(db.Text, nullable=True)
     marks = db.Column(db.Float, nullable=True)
 
+    # Optional grouping for OR-type questions. When two or more
+    # questions share the same non-null ``or_group`` value, they are
+    # treated as alternatives: during evaluation, only the
+    # highest-scoring question in each group contributes to the
+    # student's total, and the others are counted as zero.
+    or_group = db.Column(db.Integer, nullable=True)
+
     exam = db.relationship(
         "Exam",
         backref=db.backref("questions", cascade="all, delete-orphan"),
@@ -113,6 +120,10 @@ class Evaluation(db.Model):
     score = db.Column(db.Float, nullable=False)
     feedback = db.Column(db.Text, nullable=True)
     evaluated_on = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    # Optional: name of the teacher who last reviewed/overrode this
+    # evaluation via the web review UI. Auto-evaluated sheets will
+    # typically leave this as NULL.
+    reviewed_by = db.Column(db.String(255), nullable=True)
 
     extracted_text = db.relationship(
         "ExtractedText",
@@ -162,5 +173,14 @@ class QuestionStudentComment(db.Model):
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     resolved = db.Column(db.Boolean, nullable=False, default=False)
 
-    student = db.relationship("Student", backref="question_comments")
-    sheet = db.relationship("AnswerSheet", backref="student_comments")
+    # When a student or answer sheet is deleted, automatically delete
+    # related question comments instead of trying to NULL out the
+    # non-nullable foreign keys, which would cause IntegrityError.
+    student = db.relationship(
+        "Student",
+        backref=db.backref("question_comments", cascade="all, delete-orphan"),
+    )
+    sheet = db.relationship(
+        "AnswerSheet",
+        backref=db.backref("student_comments", cascade="all, delete-orphan"),
+    )

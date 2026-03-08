@@ -223,9 +223,79 @@
             padding: 20px;
         }
 
+        /* Section navigation buttons */
+        .section-tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .tab-button {
+            border: none;
+            padding: 8px 14px;
+            border-radius: 999px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            background-color: #e5e7eb;
+            color: #111827;
+            transition: background-color 0.15s, transform 0.1s;
+        }
+
+        .tab-button:hover {
+            background-color: #cbd5f5;
+            transform: translateY(-1px);
+        }
+
+        /* Full-page loading overlay */
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.65);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .loading-box {
+            background: #0f172a;
+            color: #e5e7eb;
+            padding: 20px 28px;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border-radius: 999px;
+            border: 3px solid rgba(148, 163, 184, 0.5);
+            border-top-color: #38bdf8;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
     </style>
 </head>
 <body>
+
+    <div class="loading-overlay" id="ocr-loading">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <div>Extracting students from image&hellip; This may take a few seconds.</div>
+        </div>
+    </div>
 
     <div class="card">
         <a href="{{ url_for('web.teacher_dashboard') }}" class="back-link">
@@ -234,7 +304,13 @@
 
         <h1>Manage Students</h1>
 
-        <form method="get" style="margin-top:16px; margin-bottom:16px; display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
+        <div class="section-tabs">
+            <button type="button" class="tab-button" onclick="document.getElementById('existing-students').scrollIntoView({behavior: 'smooth'});">Students List</button>
+            <button type="button" class="tab-button" onclick="document.getElementById('add-student').scrollIntoView({behavior: 'smooth'});">Add Student</button>
+            <button type="button" class="tab-button" onclick="document.getElementById('bulk-ocr').scrollIntoView({behavior: 'smooth'});">Bulk Add via OCR</button>
+        </div>
+
+        <form method="get" style="margin-top:4px; margin-bottom:16px; display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;">
             <div class="form-group" style="min-width:180px;">
                 <label>Filter by Course</label>
                 <select name="course" style="width:100%; padding:10px 12px; border:2px solid #e2e8f0; border-radius:8px; font-size:14px;">
@@ -268,8 +344,45 @@
           {% endif %}
         {% endwith %}
 
-        <h2>Add New Student</h2>
+        <h2 id="existing-students">Existing Students</h2>
+        <div class="table-container">
+            <table cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>SI No.</th>
+                        <th>Name</th>
+                        <th>Roll No</th>
+                        <th>Course</th>
+                        <th>Semester</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in students %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td><strong>{{ s.name }}</strong></td>
+                            <td>{{ s.roll_no }}</td>
+                            <td>{{ s.course }}</td>
+                            <td>{{ s.semester }}</td>
+                            <td>
+                                <form method="post" action="{{ url_for('web.delete_student', student_id=s.student_id) }}" onsubmit="return confirm('Remove this student and all their related data?');">
+                                    <button type="submit" style="border:none; background-color:#fee2e2; color:#b91c1c; font-size:12px; font-weight:600; padding:6px 10px; border-radius:999px; cursor:pointer;">Remove</button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="empty-text">No students yet.</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <h2 id="add-student">Add New Student</h2>
         <form method="post">
+            <input type="hidden" name="action" value="single_add">
             <div class="form-grid">
                 <div class="form-group">
                     <label>Name</label>
@@ -293,42 +406,89 @@
             </div>
         </form>
 
-        <h2>Existing Students</h2>
-        <div class="table-container">
-            <table cellspacing="0">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Name</th>
-                        <th>Roll No</th>
-                        <th>Course</th>
-                        <th>Semester</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for s in students %}
+        <h2 id="bulk-ocr" style="margin-top: 40px;">Bulk Add via OCR</h2>
+        <p style="font-size: 13px; color: #64748b; margin-bottom: 12px;">
+            Upload an image that lists one student per line in the format
+            <strong>Name - RollNumber</strong>. Select the course and semester to
+            apply to all extracted students.
+        </p>
+        <form method="post" enctype="multipart/form-data" style="margin-bottom: 12px;" id="ocr-form">
+            <input type="hidden" name="action" value="ocr_extract">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Course (for all)</label>
+                    <input type="text" name="ocr_course" required placeholder="e.g. B.Tech CS" value="{{ selected_course or ocr_course or '' }}">
+                </div>
+                <div class="form-group">
+                    <label>Semester (for all)</label>
+                    <input type="text" name="ocr_semester" required placeholder="e.g. 4" value="{{ selected_semester or ocr_semester or '' }}">
+                </div>
+                <div class="form-group" style="grid-column: 1 / span 2;">
+                    <label>Student List Image</label>
+                    <input type="file" name="ocr_image" accept="image/*,.png,.jpg,.jpeg,.tif,.tiff,.bmp" required>
+                </div>
+            </div>
+            <div>
+                <button type="submit" class="btn-submit">Extract Students from Image</button>
+            </div>
+        </form>
+
+        {% if ocr_addable and ocr_addable|length > 0 %}
+            <h2>OCR Extracted Students</h2>
+            {% if ocr_confidence is not none %}
+                <p style="font-size: 12px; color:#64748b; margin-bottom:8px;">
+                    OCR confidence (heuristic): {{ '%.2f' % ocr_confidence }}
+                </p>
+            {% endif %}
+            <div class="table-container" style="margin-bottom: 12px;">
+                <table cellspacing="0">
+                    <thead>
                         <tr>
-                            <td>{{ s.student_id }}</td>
-                            <td><strong>{{ s.name }}</strong></td>
-                            <td>{{ s.roll_no }}</td>
-                            <td>{{ s.course }}</td>
-                            <td>{{ s.semester }}</td>
-                            <td>
-                                <form method="post" action="{{ url_for('web.delete_student', student_id=s.student_id) }}" onsubmit="return confirm('Remove this student and all their related data?');">
-                                    <button type="submit" style="border:none; background-color:#fee2e2; color:#b91c1c; font-size:12px; font-weight:600; padding:6px 10px; border-radius:999px; cursor:pointer;">Remove</button>
-                                </form>
-                            </td>
+                            <th>Name</th>
+                            <th>Roll No</th>
+                            <th>Status</th>
                         </tr>
-                    {% else %}
-                        <tr>
-                            <td colspan="6" class="empty-text">No students yet.</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+                    </thead>
+                    <tbody>
+                        {% for item in ocr_candidates %}
+                            <tr>
+                                <td><strong>{{ item.name }}</strong></td>
+                                <td>{{ item.roll_no }}</td>
+                                <td>
+                                    {% if item.exists %}
+                                        <span style="color:#b91c1c; font-size:12px; font-weight:600;">Already exists (skipped)</span>
+                                    {% else %}
+                                        <span style="color:#15803d; font-size:12px; font-weight:600;">Will be added</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <form method="post">
+                <input type="hidden" name="action" value="ocr_add">
+                <input type="hidden" name="ocr_course" value="{{ ocr_course }}">
+                <input type="hidden" name="ocr_semester" value="{{ ocr_semester }}">
+                <input type="hidden" name="ocr_payload" value='{{ ocr_addable | tojson | safe }}'>
+                <button type="submit" class="btn-submit">Add {{ ocr_addable|length }} Students</button>
+            </form>
+        {% endif %}
     </div>
+
+    <script>
+        (function () {
+            var ocrForm = document.getElementById('ocr-form');
+            var overlay = document.getElementById('ocr-loading');
+            if (!ocrForm || !overlay) return;
+
+            ocrForm.addEventListener('submit', function () {
+                // Only show for OCR extract, not other actions
+                overlay.style.display = 'flex';
+            });
+        })();
+    </script>
 
 </body>
 </html>
