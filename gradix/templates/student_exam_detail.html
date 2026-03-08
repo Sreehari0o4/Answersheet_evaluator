@@ -229,7 +229,9 @@
                                     <select id="question_no" name="question_no" style="width:100%; padding:8px 10px; border:1px solid var(--border-color); border-radius:6px; font-size:14px;">
                                         <option value="">Select question</option>
                                         {% for item in per_question_details %}
-                                            <option value="{{ item.question_no }}">Q{{ item.question_no }}</option>
+                                            {% if item.answer_text and item.answer_text|trim %}
+                                                <option value="{{ item.question_no }}">Q{{ item.question_no }}</option>
+                                            {% endif %}
                                         {% endfor %}
                                     </select>
                                 </span>

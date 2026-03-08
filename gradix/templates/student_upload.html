@@ -207,6 +207,16 @@
             max-height: 180px;
             border-radius: 6px;
         }
+
+        .preview-pdf {
+            display: block;
+            margin-top: 8px;
+            width: 100%;
+            height: 260px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background-color: #0f172a;
+        }
     </style>
 </head>
 <body>
@@ -253,6 +263,7 @@
             <div id="file_preview" class="preview-box" style="display:none;">
                 <div id="file_preview_text"></div>
                 <img id="file_preview_image" class="preview-image" alt="Preview" style="display:none;" />
+                <iframe id="file_preview_pdf" class="preview-pdf" style="display:none; border:none;"></iframe>
             </div>
 
             <button type="submit" class="primary-btn">Upload Answer Sheet</button>
@@ -266,8 +277,11 @@
             const previewBox = document.getElementById('file_preview');
             const previewText = document.getElementById('file_preview_text');
             const previewImage = document.getElementById('file_preview_image');
+            const previewPdf = document.getElementById('file_preview_pdf');
 
-            if (!fileInput || !mainText || !subText || !previewBox || !previewText || !previewImage) return;
+            if (!fileInput || !mainText || !subText || !previewBox || !previewText || !previewImage || !previewPdf) return;
+
+            let currentPdfUrl = null;
 
             fileInput.addEventListener('change', function () {
                 const file = this.files && this.files[0] ? this.files[0] : null;
@@ -277,6 +291,11 @@
                     previewBox.style.display = 'none';
                     previewImage.style.display = 'none';
                     previewImage.src = '';
+                    previewPdf.style.display = 'none';
+                    if (currentPdfUrl) {
+                        URL.revokeObjectURL(currentPdfUrl);
+                        currentPdfUrl = null;
+                    }
                     previewText.textContent = '';
                     return;
                 }
@@ -288,6 +307,15 @@
                 previewBox.style.display = 'block';
                 previewText.textContent = 'Selected: ' + file.name + ' [' + (file.type || 'unknown type') + ']';
 
+                // Reset previous previews
+                previewImage.style.display = 'none';
+                previewImage.src = '';
+                previewPdf.style.display = 'none';
+                if (currentPdfUrl) {
+                    URL.revokeObjectURL(currentPdfUrl);
+                    currentPdfUrl = null;
+                }
+
                 if (file.type && file.type.startsWith('image/')) {
                     const reader = new FileReader();
                     reader.onload = function (e) {
@@ -295,9 +323,12 @@
                         previewImage.style.display = 'block';
                     };
                     reader.readAsDataURL(file);
+                } else if ((file.type && file.type === 'application/pdf') || file.name.toLowerCase().endsWith('.pdf')) {
+                    currentPdfUrl = URL.createObjectURL(file);
+                    previewPdf.src = currentPdfUrl;
+                    previewPdf.style.display = 'block';
                 } else {
-                    previewImage.style.display = 'none';
-                    previewImage.src = '';
+                    // Non-image, non-PDF: only show filename text.
                 }
             });
         })();
