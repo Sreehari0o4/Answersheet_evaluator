@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Exam Sheets - {{ exam.subject }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-start: #1e3a8a;
+            --bg-end: #0f172a;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-sub: #475569;
+            --primary-btn: #1d4ed8;
+            --primary-btn-hover: #1e40af;
+            --border-color: #cbd5e1;
+            --table-header-bg: #eff6ff;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding: 40px 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 900px;
+            padding: 36px 36px 40px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 18px;
+            text-decoration: none;
+            color: #94a3b8;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: color 0.2s;
+        }
+
+        .back-link:hover { color: var(--primary-btn); }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            color: #1e3a8a;
+        }
+
+        p.subtitle {
+            color: var(--text-sub);
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .flash-messages { list-style: none; margin-bottom: 18px; }
+        .flash-messages li {
+            padding: 12px;
+            border-left: 5px solid #1e40af;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            background-color: #eff6ff;
+            color: #1e3a8a;
+        }
+
+        .flash-messages li.error {
+            border-left-color: #b91c1c;
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .flash-messages li.success {
+            border-left-color: #15803d;
+            background-color: #dcfce7;
+            color: #166534;
+        }
+
+        .table-container {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            overflow-x: auto;
+            margin-top: 8px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+
+        thead { background-color: var(--table-header-bg); }
+
+        th, td {
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            font-weight: 700;
+            color: #1e3a8a;
+            white-space: nowrap;
+        }
+
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background-color: #f8fafc; }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-pending {
+            background-color: #fef3c7;
+            color: #92400e;
+        }
+
+        .status-graded {
+            background-color: #dbeafe;
+            color: #1d4ed8;
+        }
+
+        .status-reviewed {
+            background-color: #dcfce7;
+            color: #166534;
+        }
+
+        .btn-primary {
+            border: none;
+            background-color: var(--primary-btn);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 600;
+            padding: 8px 14px;
+            border-radius: 999px;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-btn-hover);
+            transform: translateY(-1px);
+        }
+
+        .link-review {
+            font-size: 13px;
+            font-weight: 600;
+            color: #1d4ed8;
+            text-decoration: none;
+        }
+
+        .link-review:hover { text-decoration: underline; }
+
+        .empty-text {
+            padding: 18px;
+            font-size: 14px;
+            color: #94a3b8;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <a href="{{ url_for('web.select_exam_for_evaluation') }}" class="back-link">&larr; Back to Exams</a>
+
+        <h1>Uploaded Sheets - {{ exam.subject }}</h1>
+        <p class="subtitle">
+            Review student uploads for this exam, then run OCR and evaluation.
+        </p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <ul class="flash-messages">
+                    {% for category, message in messages %}
+                        <li class="{{ category }}">{{ message }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        {% endwith %}
+
+        <div class="table-container">
+            <table cellspacing="0">
+                <thead>
+                    <tr>
+                        <th>Student</th>
+                        <th>Roll No</th>
+                        <th>Uploaded At</th>
+                        <th>Status</th>
+                        <th style="width: 220px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if sheets and sheets|length > 0 %}
+                        {% for sheet in sheets %}
+                            <tr>
+                                <td>{{ sheet.student.name if sheet.student else 'Unknown' }}</td>
+                                <td>{{ sheet.student.roll_no if sheet.student else '-' }}</td>
+                                <td>{{ sheet.upload_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                                <td>
+                                    {% if sheet.status == AnswerSheetStatus.PENDING %}
+                                        <span class="status-pill status-pending">Pending</span>
+                                    {% elif sheet.status == AnswerSheetStatus.GRADED %}
+                                        <span class="status-pill status-graded">Graded</span>
+                                    {% elif sheet.status == AnswerSheetStatus.REVIEWED %}
+                                        <span class="status-pill status-reviewed">Reviewed</span>
+                                    {% else %}
+                                        <span class="status-pill">{{ sheet.status.value }}</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if sheet.status == AnswerSheetStatus.PENDING %}
+                                        <a href="{{ url_for('web.upload_page', sheet_id=sheet.sheet_id) }}" class="btn-primary">Extract &amp; Evaluate</a>
+                                    {% else %}
+                                        <a href="{{ url_for('web.review_page', sheet_id=sheet.sheet_id) }}" class="link-review">Open Review</a>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="5" class="empty-text">No answer sheets uploaded for this exam yet.</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

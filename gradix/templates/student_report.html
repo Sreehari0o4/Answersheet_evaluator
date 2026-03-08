@@ -305,6 +305,54 @@
                 </table>
             </div>
 
+            <h2>Exams &amp; Uploads</h2>
+            <div class="table-container" style="margin-top:12px;">
+                <table cellspacing="0">
+                    <thead>
+                        <tr>
+                            <th>Exam</th>
+                            <th>Upload Status</th>
+                            <th style="width:180px;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if exams and exams|length > 0 %}
+                            {% for exam in exams %}
+                                {% set sheet = uploads_by_exam.get(exam.exam_id) if uploads_by_exam else None %}
+                                <tr>
+                                    <td>{{ exam.subject }}</td>
+                                    <td>
+                                        {% if sheet %}
+                                            Uploaded on {{ sheet.upload_date.strftime('%Y-%m-%d %H:%M') }}
+                                            ({{ sheet.status.value }})
+                                        {% else %}
+                                            <span class="empty-text" style="padding:0; font-style:normal;">Not uploaded</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if sheet %}
+                                            {% if sheet.status == AnswerSheetStatus.REVIEWED %}
+                                                <span style="font-size:13px; color:#16a34a; font-weight:600;">Reviewed</span>
+                                            {% else %}
+                                                <span style="font-size:13px; color:#f59e0b; font-weight:600;">Waiting for teacher</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <a href="{{ url_for('web.student_exam_upload', exam_id=exam.exam_id) }}" class="primary-btn" style="display:inline-block; text-align:center; padding:8px 14px; font-size:13px; border-radius:999px; width:auto;">
+                                                Upload Answer Sheet
+                                            </a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="3" class="empty-text">No exams available yet.</td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+
         {% else %}
             <p class="empty-text">No student record linked to this account.</p>
         {% endif %}

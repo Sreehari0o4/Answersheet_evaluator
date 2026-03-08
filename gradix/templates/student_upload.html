@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload Answer Sheet</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-start: #1e3a8a;
+            --bg-end: #0f172a;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-sub: #475569;
+            --primary-btn: #1d4ed8;
+            --primary-btn-hover: #1e40af;
+            --border-color: #cbd5e1;
+            --focus-ring: #93c5fd;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-start) 0%, var(--bg-end) 100%);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            color: var(--text-main);
+            padding: 20px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 550px;
+            padding: 32px 32px 36px;
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+        }
+
+        h1 {
+            font-size: 24px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            color: #1e3a8a;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            color: var(--text-sub);
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .back-link {
+            display: inline-flex;
+            align-items: center;
+            margin-bottom: 16px;
+            text-decoration: none;
+            color: #94a3b8;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            transition: color 0.2s, transform 0.1s;
+        }
+
+        .back-link:hover {
+            color: #1d4ed8;
+            transform: translateX(-2px);
+        }
+
+        .flash-messages { list-style: none; margin-bottom: 16px; }
+        .flash-messages li {
+            padding: 12px;
+            border-left: 5px solid #1e40af;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 8px;
+            background-color: #eff6ff;
+            color: #1e3a8a;
+        }
+
+        .flash-messages li.error {
+            border-left-color: #b91c1c;
+            background-color: #fee2e2;
+            color: #b91c1c;
+        }
+
+        .flash-messages li.success {
+            border-left-color: #15803d;
+            background-color: #dcfce7;
+            color: #166534;
+        }
+
+        .info-box {
+            margin-bottom: 20px;
+            padding: 14px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background-color: #f8fafc;
+            font-size: 14px;
+        }
+
+        .info-label {
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 600;
+            color: #64748b;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .info-value {
+            font-size: 15px;
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .upload-area {
+            border: 2px dashed #cbd5e1;
+            border-radius: 12px;
+            padding: 32px 20px;
+            text-align: center;
+            margin-bottom: 20px;
+            position: relative;
+            transition: all 0.3s ease;
+            background-color: #f8fafc;
+        }
+
+        .upload-area:hover {
+            border-color: var(--primary-btn);
+            background-color: #eff6ff;
+            transform: translateY(-1px);
+        }
+
+        .upload-area input[type="file"] {
+            position: absolute;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .icon-cloud {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 10px;
+            color: #94a3b8;
+        }
+
+        .upload-text-main {
+            font-weight: 700;
+            color: #334155;
+            margin-bottom: 4px;
+            font-size: 15px;
+        }
+
+        .upload-text-sub {
+            color: #64748b;
+            font-size: 13px;
+        }
+
+        .primary-btn {
+            width: 100%;
+            background-color: var(--primary-btn);
+            color: #fff;
+            font-weight: 700;
+            padding: 13px 16px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 15px;
+            transition: all 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(29, 78, 216, 0.4);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .primary-btn:hover {
+            background-color: var(--primary-btn-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 8px -1px rgba(29, 78, 216, 0.5);
+        }
+
+        .primary-btn:active {
+            transform: translateY(0);
+        }
+
+        .preview-box {
+            margin-top: 12px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px dashed var(--border-color);
+            background-color: #f9fafb;
+            font-size: 13px;
+            color: var(--text-sub);
+        }
+
+        .preview-image {
+            display: block;
+            margin-top: 8px;
+            max-width: 100%;
+            max-height: 180px;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <a href="{{ url_for('web.student_report') }}" class="back-link">&larr; Back to My Page</a>
+
+        <h1>Upload Answer Sheet</h1>
+        <p class="subtitle">
+            Exam: <strong>{{ exam.subject }}</strong>
+            {% if exam.max_marks is not none %}
+                (Max Marks: {{ exam.max_marks }})
+            {% endif %}
+        </p>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <ul class="flash-messages">
+                    {% for category, message in messages %}
+                        <li class="{{ category }}">{{ message }}</li>
+                    {% endfor %}
+                </ul>
+            {% endif %}
+        {% endwith %}
+
+        <div class="info-box">
+            <div class="info-label">Important</div>
+            <div class="info-value" style="font-weight:500; font-size:13px; line-height:1.5;">
+                You can upload your answer sheet for this exam only once
+                while it is stored in the system. Make sure you choose the
+                final, correct file before submitting.
+            </div>
+        </div>
+
+        <form method="post" enctype="multipart/form-data">
+            <div class="upload-area">
+                <svg class="icon-cloud" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+                </svg>
+                <div class="upload-text-main">Click to choose file or drag and drop</div>
+                <div class="upload-text-sub">PDF, PNG, or JPG (max 10MB)</div>
+                <input type="file" name="file" accept="application/pdf,image/png,image/jpeg" required>
+            </div>
+
+            <div id="file_preview" class="preview-box" style="display:none;">
+                <div id="file_preview_text"></div>
+                <img id="file_preview_image" class="preview-image" alt="Preview" style="display:none;" />
+            </div>
+
+            <button type="submit" class="primary-btn">Upload Answer Sheet</button>
+        </form>
+    </div>
+    <script>
+        (function () {
+            const fileInput = document.querySelector('input[type="file"][name="file"]');
+            const mainText = document.querySelector('.upload-text-main');
+            const subText = document.querySelector('.upload-text-sub');
+            const previewBox = document.getElementById('file_preview');
+            const previewText = document.getElementById('file_preview_text');
+            const previewImage = document.getElementById('file_preview_image');
+
+            if (!fileInput || !mainText || !subText || !previewBox || !previewText || !previewImage) return;
+
+            fileInput.addEventListener('change', function () {
+                const file = this.files && this.files[0] ? this.files[0] : null;
+                if (!file) {
+                    mainText.textContent = 'Click to choose file or drag and drop';
+                    subText.textContent = 'PDF, PNG, or JPG (max 10MB)';
+                    previewBox.style.display = 'none';
+                    previewImage.style.display = 'none';
+                    previewImage.src = '';
+                    previewText.textContent = '';
+                    return;
+                }
+
+                mainText.textContent = file.name;
+                const sizeKB = Math.round(file.size / 102.4) / 10; // one decimal place
+                subText.textContent = 'Selected file (' + sizeKB + ' KB)';
+
+                previewBox.style.display = 'block';
+                previewText.textContent = 'Selected: ' + file.name + ' [' + (file.type || 'unknown type') + ']';
+
+                if (file.type && file.type.startsWith('image/')) {
+                    const reader = new FileReader();
+                    reader.onload = function (e) {
+                        previewImage.src = e.target.result;
+                        previewImage.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    previewImage.style.display = 'none';
+                    previewImage.src = '';
+                }
+            });
+        })();
+    </script>
+</body>
+</html>

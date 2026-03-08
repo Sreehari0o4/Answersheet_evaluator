@@ -4,6 +4,7 @@ import json
 import tempfile
 from datetime import datetime
 from functools import wraps
+from uuid import uuid4
 
 import bcrypt
 from flask import (
@@ -1271,6 +1272,96 @@ def upload_page():
             flash("Answer sheet evaluated.", "success")
             return redirect(url_for("web.review_page", sheet_id=sheet.sheet_id))
 
+        # If the teacher clicks Extract Text for an existing sheet
+        # (uploaded previously by a student), run OCR and store
+        # ExtractedText without creating a new AnswerSheet.
+        if action == "extract" and request.form.get("sheet_id"):
+            try:
+                sheet_id_int = int(request.form.get("sheet_id"))
+            except (TypeError, ValueError):
+                flash("Invalid sheet id for extraction.", "error")
+                exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+                return render_template("upload.html", exams=exams)
+
+            sheet = AnswerSheet.query.get(sheet_id_int)
+            if sheet is None:
+                flash("Answer sheet not found for extraction.", "error")
+                exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+                return render_template("upload.html", exams=exams)
+
+            upload_folder = current_app.config["UPLOAD_FOLDER"]
+            os.makedirs(upload_folder, exist_ok=True)
+
+            sheet_filename = os.path.basename(sheet.file_path)
+            full_path = os.path.join(upload_folder, sheet_filename)
+
+            raw_text = ""
+            confidence = 0.0
+
+            use_gemini = os.environ.get("USE_GEMINI", "").lower() in {"1", "true", "yes"}
+            if use_gemini:
+                try:  # pragma: no cover - depends on external API
+                    from gemini_ocr_client import (
+                        GeminiConfigError,
+                        extract_text as gemini_extract,
+                    )
+
+                    current_app.logger.info("Attempting Gemini OCR for path: %s", full_path)
+                    g_text = gemini_extract(full_path)
+                    if g_text:
+                        raw_text = g_text
+                        confidence = 0.98
+                    else:
+                        raise RuntimeError("Empty text from Gemini OCR")
+                except GeminiConfigError as exc:
+                    current_app.logger.warning(
+                        "Gemini misconfigured, falling back to local OCR: %s",
+                        exc,
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    current_app.logger.exception(
+                        "Gemini OCR failed, falling back to local OCR: %s",
+                        exc,
+                    )
+
+            if not raw_text:
+                raw_text, confidence = run_ocr(full_path)
+
+            cleaned_text = preprocess_text(raw_text)
+
+            extracted = sheet.extracted_text
+            if extracted is None:
+                extracted = ExtractedText(
+                    sheet_id=sheet.sheet_id,
+                    raw_text=raw_text,
+                    cleaned_text=cleaned_text,
+                    extraction_confidence=confidence,
+                )
+                db.session.add(extracted)
+            else:
+                extracted.raw_text = raw_text
+                extracted.cleaned_text = cleaned_text
+                extracted.extraction_confidence = confidence
+
+            db.session.commit()
+
+            flash("Text extracted successfully. You can now run evaluation.", "success")
+
+            exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+            file_url = url_for(
+                "web.uploaded_file",
+                filename=os.path.basename(sheet.file_path),
+            )
+            selected_exam = sheet.exam
+            return render_template(
+                "upload.html",
+                exams=exams,
+                selected_exam=selected_exam,
+                sheet=sheet,
+                extracted=extracted,
+                file_url=file_url,
+            )
+
         # Otherwise we are in the Extract Text step: upload + OCR only.
         student_name = (request.form.get("student_name") or "").strip()
         roll_no = (request.form.get("roll_no") or "").strip()
@@ -1407,14 +1498,32 @@ def upload_page():
         flash("Text extracted successfully. You can now run evaluation.", "success")
 
         exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+        file_url = url_for(
+            "web.uploaded_file",
+            filename=os.path.basename(sheet.file_path),
+        )
         return render_template(
             "upload.html",
             exams=exams,
+            selected_exam=exam,
             sheet=sheet,
             extracted=extracted,
+            file_url=file_url,
         )
 
     exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+
+    sheet = None
+    extracted = None
+    file_url = None
+
+    sheet_id_raw = request.args.get("sheet_id")
+    if sheet_id_raw:
+        try:
+            sheet_id_int = int(sheet_id_raw)
+            sheet = AnswerSheet.query.get(sheet_id_int)
+        except (TypeError, ValueError):
+            sheet = None
 
     selected_exam = None
     exam_id_raw = request.args.get("exam_id")
@@ -1424,8 +1533,24 @@ def upload_page():
             selected_exam = Exam.query.get(exam_id_int)
         except (TypeError, ValueError):
             selected_exam = None
+    elif sheet is not None:
+        selected_exam = sheet.exam
 
-    return render_template("upload.html", exams=exams, selected_exam=selected_exam)
+    if sheet is not None:
+        file_url = url_for(
+            "web.uploaded_file",
+            filename=os.path.basename(sheet.file_path),
+        )
+        extracted = sheet.extracted_text
+
+    return render_template(
+        "upload.html",
+        exams=exams,
+        selected_exam=selected_exam,
+        sheet=sheet,
+        extracted=extracted,
+        file_url=file_url,
+    )
 
 
 @web_bp.route("/teacher/evaluate/select-exam")
@@ -1440,6 +1565,293 @@ def select_exam_for_evaluation():
 
     exams = Exam.query.order_by(Exam.exam_id.asc()).all()
     return render_template("evaluate_select_exam.html", exams=exams)
+
+
+@web_bp.route("/teacher/exam/<int:exam_id>/sheets")
+@login_required_view
+@role_required_view({UserRole.TEACHER, UserRole.ADMIN})
+def teacher_exam_sheets(exam_id: int):
+    """List all uploaded answer sheets for a given exam for teachers.
+
+    From here a teacher can pick a student's uploaded sheet and run
+    OCR + evaluation without uploading files themselves.
+    """
+
+    exam = Exam.query.get_or_404(exam_id)
+    sheets = (
+        AnswerSheet.query.filter_by(exam_id=exam.exam_id)
+        .order_by(AnswerSheet.upload_date.desc())
+        .all()
+    )
+
+    return render_template(
+        "teacher_exam_sheets.html",
+        exam=exam,
+        sheets=sheets,
+        AnswerSheetStatus=AnswerSheetStatus,
+    )
+
+
+@web_bp.route("/teacher/sheet/<int:sheet_id>/extract-evaluate", methods=["POST"])
+@login_required_view
+@role_required_view({UserRole.TEACHER, UserRole.ADMIN})
+def teacher_extract_evaluate_sheet(sheet_id: int):
+    """Run OCR and evaluation for an existing uploaded answer sheet.
+
+    This is used when students upload their own answer sheets; the
+    teacher only needs to trigger extraction/evaluation.
+    """
+
+    sheet = AnswerSheet.query.get_or_404(sheet_id)
+    exam = sheet.exam
+
+    upload_folder = current_app.config["UPLOAD_FOLDER"]
+    os.makedirs(upload_folder, exist_ok=True)
+
+    sheet_filename = os.path.basename(sheet.file_path)
+    sheet_abs_path = os.path.join(upload_folder, sheet_filename)
+
+    # If OCR has not yet been run, perform extraction now.
+    extracted = sheet.extracted_text
+    if extracted is None:
+        raw_text = ""
+        confidence = 0.0
+
+        use_gemini = os.environ.get("USE_GEMINI", "").lower() in {"1", "true", "yes"}
+        if use_gemini:
+            try:  # pragma: no cover - depends on external API
+                from gemini_ocr_client import (
+                    GeminiConfigError,
+                    extract_text as gemini_extract,
+                )
+
+                current_app.logger.info("Attempting Gemini OCR for path: %s", sheet_abs_path)
+                g_text = gemini_extract(sheet_abs_path)
+                if g_text:
+                    raw_text = g_text
+                    confidence = 0.98
+                else:
+                    raise RuntimeError("Empty text from Gemini OCR")
+            except GeminiConfigError as exc:
+                current_app.logger.warning(
+                    "Gemini misconfigured, falling back to local OCR: %s",
+                    exc,
+                )
+            except Exception as exc:  # noqa: BLE001
+                current_app.logger.exception(
+                    "Gemini OCR failed, falling back to local OCR: %s",
+                    exc,
+                )
+
+        if not raw_text:
+            raw_text, confidence = run_ocr(sheet_abs_path)
+
+        cleaned_text = preprocess_text(raw_text)
+
+        extracted = ExtractedText(
+            sheet_id=sheet.sheet_id,
+            raw_text=raw_text,
+            cleaned_text=cleaned_text,
+            extraction_confidence=confidence,
+        )
+        db.session.add(extracted)
+        db.session.flush()
+
+    # At this point we must have extracted text for evaluation.
+    extracted = sheet.extracted_text
+    if extracted is None:
+        flash("Could not extract text for this sheet.", "error")
+        return redirect(url_for("web.teacher_exam_sheets", exam_id=sheet.exam_id))
+
+    # Use the same evaluation pipeline as the upload page.
+    from .models import QuestionEvaluation
+
+    segments = split_numbered_answers(extracted.raw_text)
+
+    exam_questions = sorted(
+        getattr(exam, "questions", []),
+        key=lambda q: q.question_no,
+    )
+
+    if exam.rubric_details:
+        model_answer_text = exam.rubric_details
+    elif exam_questions:
+        parts = []
+        for q in exam_questions:
+            base = f"Q{q.question_no}. {q.question_text}"
+            parts.append(base)
+        model_answer_text = "\n\n".join(parts)
+    else:
+        model_answer_text = "Reference answer not provided."
+
+    final_score: float
+    feedback: str
+    per_q: list[dict]
+
+    if exam_questions:
+        answers_by_q = {q_no: ans for q_no, ans in segments}
+
+        try:  # pragma: no cover - depends on external API
+            from gemini_ocr_client import (
+                GeminiConfigError,
+                evaluate_answers_with_gemini,
+            )
+
+            payload_items = []
+            marks_by_q: dict[int, float | None] = {}
+            for eq in exam_questions:
+                max_marks_val = float(eq.marks) if eq.marks is not None else None
+                marks_by_q[eq.question_no] = max_marks_val
+                payload_items.append(
+                    {
+                        "question_no": eq.question_no,
+                        "question_text": eq.question_text,
+                        "model_answer": eq.answer_text,
+                        "max_marks": max_marks_val,
+                        "student_answer": answers_by_q.get(eq.question_no, ""),
+                    }
+                )
+
+            gemini_result = evaluate_answers_with_gemini(
+                payload_items,
+                sheet_image_path=sheet_abs_path,
+            )
+            questions_out = gemini_result.get("questions", []) or []
+
+            per_q = []
+            for idx, payload in enumerate(payload_items):
+                q_no = payload["question_no"]
+                out_item = questions_out[idx] if idx < len(questions_out) else {}
+                try:
+                    raw_score = float(out_item.get("score", 0.0))
+                except (TypeError, ValueError):
+                    raw_score = 0.0
+
+                max_marks = marks_by_q.get(q_no)
+                if (
+                    max_marks is not None
+                    and max_marks > 1.0
+                    and 0.0 <= raw_score <= 1.0
+                ):
+                    q_score = raw_score * max_marks
+                else:
+                    q_score = raw_score
+
+                ans_text = payload["student_answer"] or ""
+                per_q.append(
+                    {
+                        "question_no": q_no,
+                        "answer_text": ans_text,
+                        "score": q_score,
+                        "feedback": "",
+                    }
+                )
+
+            per_q, total_score = _apply_or_group_scoring(exam_questions, per_q)
+            final_score = round(float(total_score), 2)
+            feedback = "Auto-evaluated using Gemini based on exam rubric."
+        except GeminiConfigError as exc:
+            current_app.logger.warning(
+                "Gemini evaluation misconfigured, falling back to heuristic scoring: %s",
+                exc,
+            )
+            final_score, feedback, per_q = evaluate_text_by_questions(
+                extracted.cleaned_text,
+                model_answer_text,
+            )
+            if exam_questions:
+                per_q, total_score = _apply_or_group_scoring(exam_questions, per_q)
+                final_score = round(float(total_score), 2)
+        except Exception as exc:  # noqa: BLE001
+            current_app.logger.exception(
+                "Gemini evaluation failed, falling back to heuristic scoring: %s",
+                exc,
+            )
+            final_score, feedback, per_q = evaluate_text_by_questions(
+                extracted.cleaned_text,
+                model_answer_text,
+            )
+            if exam_questions:
+                per_q, total_score = _apply_or_group_scoring(exam_questions, per_q)
+                final_score = round(float(total_score), 2)
+    else:
+        final_score, feedback, per_q = evaluate_text_by_questions(
+            extracted.cleaned_text,
+            model_answer_text,
+        )
+
+    evaluation = extracted.evaluation
+    if evaluation is None:
+        evaluation = Evaluation(
+            text_id=extracted.text_id,
+            model_answer_ref=model_answer_text,
+            score=final_score,
+            feedback=feedback,
+            evaluated_on=datetime.utcnow(),
+        )
+        db.session.add(evaluation)
+        db.session.flush()
+    else:
+        evaluation.model_answer_ref = model_answer_text
+        evaluation.score = final_score
+        evaluation.feedback = feedback
+        evaluation.evaluated_on = datetime.utcnow()
+
+        for qs in list(evaluation.question_scores):
+            db.session.delete(qs)
+
+    exam_questions = sorted(
+        getattr(exam, "questions", []),
+        key=lambda q: q.question_no,
+    )
+
+    if exam_questions:
+        per_q_by_no: dict[int, dict] = {}
+        for item in per_q:
+            try:
+                q_no_int = int(item["question_no"])
+            except (TypeError, ValueError):
+                continue
+            per_q_by_no[q_no_int] = item
+
+        for eq in exam_questions:
+            item = per_q_by_no.get(eq.question_no)
+            if item is not None:
+                try:
+                    q_score = float(item["score"])
+                except (TypeError, ValueError):
+                    q_score = 0.0
+                feedback_text = (item.get("feedback") or "").strip() or None
+            else:
+                q_score = 0.0
+                feedback_text = "Unanswered"
+
+            qe = QuestionEvaluation(
+                eval_id=evaluation.eval_id,
+                question_no=eq.question_no,
+                score=q_score,
+                feedback=feedback_text,
+            )
+            db.session.add(qe)
+    else:
+        for item in per_q:
+            try:
+                q_no = int(item["question_no"])
+                q_score = float(item["score"])
+            except (TypeError, ValueError):
+                continue
+            qe = QuestionEvaluation(
+                eval_id=evaluation.eval_id,
+                question_no=q_no,
+                score=q_score,
+            )
+            db.session.add(qe)
+
+    sheet.status = AnswerSheetStatus.GRADED
+    db.session.commit()
+
+    flash("Answer sheet evaluated.", "success")
+    return redirect(url_for("web.review_page", sheet_id=sheet.sheet_id))
 
 
 @web_bp.route("/teacher/student/lookup")
@@ -1683,7 +2095,14 @@ def student_report():
             "No student record linked to this user. Ask admin/teacher to create one.",
             "error",
         )
-        return render_template("student_report.html", student=None, reports=[])
+        return render_template(
+            "student_report.html",
+            student=None,
+            reports=[],
+            exams=[],
+            uploads_by_exam={},
+            AnswerSheetStatus=AnswerSheetStatus,
+        )
 
     # If this is a POST, handle inline updates to course/semester first
     if request.method == "POST":
@@ -1749,8 +2168,114 @@ def student_report():
     if sheets_by_exam:
         db.session.commit()
 
+    # All exams (for allowing uploads by exam from student page)
+    exams = Exam.query.order_by(Exam.exam_id.asc()).all()
+
+    # Latest uploaded sheet per exam for this student (if any)
+    latest_sheet_by_exam: dict[int, AnswerSheet] = {}
+    existing_sheets = (
+        AnswerSheet.query.filter_by(student_id=student.student_id)
+        .order_by(AnswerSheet.upload_date.desc())
+        .all()
+    )
+    for sheet in existing_sheets:
+        if sheet.exam_id not in latest_sheet_by_exam:
+            latest_sheet_by_exam[sheet.exam_id] = sheet
+
     reports = Report.query.filter_by(student_id=student.student_id).all()
-    return render_template("student_report.html", student=student, reports=reports)
+    return render_template(
+        "student_report.html",
+        student=student,
+        reports=reports,
+        exams=exams,
+        uploads_by_exam=latest_sheet_by_exam,
+        AnswerSheetStatus=AnswerSheetStatus,
+    )
+
+
+@web_bp.route("/student/exam/<int:exam_id>/upload", methods=["GET", "POST"])
+@login_required_view
+@role_required_view({UserRole.STUDENT})
+def student_exam_upload(exam_id: int):
+    """Allow a logged-in student to upload their answer sheet for a given exam.
+
+    A student can upload at most one answer sheet per exam as long as a
+    corresponding record exists in the database.
+    """
+
+    user = session.get("user")
+    student_id = user.get("student_id") if user else None
+
+    student = None
+    if student_id is not None:
+        try:
+            student = Student.query.get(int(student_id))
+        except (TypeError, ValueError):
+            student = None
+
+    if student is None:
+        flash(
+            "No student record linked to this user. Ask admin/teacher to create one.",
+            "error",
+        )
+        return redirect(url_for("web.student_report"))
+
+    exam = Exam.query.get_or_404(exam_id)
+
+    # Enforce single upload per student+exam as long as a sheet exists
+    existing_sheet = (
+        AnswerSheet.query.filter_by(student_id=student.student_id, exam_id=exam.exam_id)
+        .order_by(AnswerSheet.upload_date.desc())
+        .first()
+    )
+    if existing_sheet is not None:
+        flash(
+            "You have already uploaded an answer sheet for this exam.",
+            "error",
+        )
+        return redirect(url_for("web.student_report"))
+
+    if request.method == "POST":
+        file = request.files.get("file")
+
+        errors: list[str] = []
+        filename = file.filename if file is not None else ""
+        if not file or not filename:
+            errors.append("File is required.")
+        elif not _allowed_file(filename):
+            errors.append("Invalid file type. Allowed: PDF, JPG, PNG.")
+
+        if errors:
+            for e in errors:
+                flash(e, "error")
+            return render_template("student_upload.html", exam=exam)
+
+        upload_folder = current_app.config["UPLOAD_FOLDER"]
+        os.makedirs(upload_folder, exist_ok=True)
+
+        ext = filename.rsplit(".", 1)[1].lower()
+        safe_name = f"{student.student_id}_{exam.exam_id}_{uuid4().hex}.{ext}"
+        full_path = os.path.join(upload_folder, safe_name)
+        file.save(full_path)
+
+        relative_path = os.path.join("uploads", safe_name)
+
+        sheet = AnswerSheet(
+            student_id=student.student_id,
+            exam_id=exam.exam_id,
+            file_path=relative_path,
+            status=AnswerSheetStatus.PENDING,
+        )
+        db.session.add(sheet)
+        db.session.commit()
+
+        flash(
+            "Answer sheet uploaded successfully. Your teacher will extract and evaluate it.",
+            "success",
+        )
+        return redirect(url_for("web.student_report"))
+
+    return render_template("student_upload.html", exam=exam)
 
 
 @web_bp.route("/student/report/<int:exam_id>", methods=["GET", "POST"])

@@ -148,7 +148,7 @@
                             <td>{{ exam.subject }}</td>
                             <td>{{ exam.max_marks }}</td>
                             <td>
-                                <a href="{{ url_for('web.upload_page', exam_id=exam.exam_id) }}" class="btn-select">Use This Exam</a>
+                                <a href="{{ url_for('web.teacher_exam_sheets', exam_id=exam.exam_id) }}" class="btn-select">View Uploaded Sheets</a>
                             </td>
                         </tr>
                     {% else %}
