@@ -961,8 +961,11 @@ def evaluated_students():
     )
 
     selected_exam_id_raw = request.args.get("exam_id")
+    sort_order = request.args.get("sort") or "marks_desc"
+    search_query = (request.args.get("search") or "").strip()
+
     selected_exam = None
-    student_rows = []
+    student_rows: list[dict[str, object]] = []
 
     if selected_exam_id_raw:
         try:
@@ -1004,14 +1007,30 @@ def evaluated_students():
                         }
                     )
 
-                # Consistent ordering by student name
-                student_rows.sort(key=lambda r: r["student"].name.lower())
+                # Optional search filter by name or roll number
+                if search_query:
+                    sq = search_query.lower()
+                    filtered_rows = []
+                    for row in student_rows:
+                        name = (row["student"].name or "").lower()
+                        roll = (row["student"].roll_no or "").lower()
+                        if sq in name or sq in roll:
+                            filtered_rows.append(row)
+                    student_rows = filtered_rows
+
+                # Sorting: default by marks descending, or ascending if requested
+                if sort_order == "marks_asc":
+                    student_rows.sort(key=lambda r: float(getattr(r["evaluation"], "score", 0.0)))
+                else:  # "marks_desc" or anything else
+                    student_rows.sort(key=lambda r: float(getattr(r["evaluation"], "score", 0.0)), reverse=True)
 
     return render_template(
         "evaluated_students.html",
         exams=exams_with_sheets,
         selected_exam=selected_exam,
         student_rows=student_rows,
+        sort_order=sort_order,
+        search_query=search_query,
     )
 
 

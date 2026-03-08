@@ -328,8 +328,8 @@
 <body>
 
     <div class="card">
-        <a href="{{ url_for('web.evaluated_students', exam_id=sheet.exam_id) }}" class="back-link">
-            ← Back to Evaluated Students
+        <a href="javascript:window.history.back();" class="back-link">
+            ← Back
         </a>
 
         <h1>Review Answer Sheet <span style="color:var(--primary-color);">#{{ sheet.sheet_id }}</span></h1>

@@ -159,6 +159,24 @@
                 <p class="empty-text">No evaluated students for this exam yet.</p>
             {% else %}
                 <h2>{{ selected_exam.subject }}</h2>
+
+                <!-- Filters: search by student and sort by marks -->
+                <form method="get" style="margin: 10px 0 12px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+                    <input type="hidden" name="exam_id" value="{{ selected_exam.exam_id }}">
+                    <div>
+                        <label for="search" style="font-size:13px; color:#64748b; font-weight:500;">Search student:</label>
+                        <input id="search" name="search" type="text" value="{{ search_query }}" placeholder="Name or roll number" style="margin-left:6px; padding:6px 8px; border-radius:6px; border:1px solid #cbd5e1; font-size:13px; min-width:180px;">
+                    </div>
+                    <div>
+                        <label for="sort" style="font-size:13px; color:#64748b; font-weight:500;">Sort by marks:</label>
+                        <select id="sort" name="sort" style="margin-left:6px; padding:6px 8px; border-radius:6px; border:1px solid #cbd5e1; font-size:13px;">
+                            <option value="marks_desc" {% if sort_order == 'marks_desc' %}selected{% endif %}>High to low</option>
+                            <option value="marks_asc" {% if sort_order == 'marks_asc' %}selected{% endif %}>Low to high</option>
+                        </select>
+                    </div>
+                    <button type="submit" style="padding:6px 14px; border-radius:999px; border:none; background-color:#1d4ed8; color:#fff; font-size:13px; font-weight:600; cursor:pointer;">Apply</button>
+                </form>
+
                 <div class="table-container">
                     <table cellspacing="0">
                         <thead>
