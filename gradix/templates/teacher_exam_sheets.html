@@ -92,35 +92,61 @@
             color: #166534;
         }
 
-        .table-container {
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            overflow-x: auto;
-            margin-top: 8px;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
-        }
-
-        thead { background-color: var(--table-header-bg); }
-
-        th, td {
-            padding: 12px 14px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        th {
+        .section-title {
+            margin-top: 18px;
+            margin-bottom: 10px;
+            font-size: 16px;
             font-weight: 700;
-            color: #1e3a8a;
-            white-space: nowrap;
+            color: #1e293b;
         }
 
-        tr:last-child td { border-bottom: none; }
-        tr:hover td { background-color: #f8fafc; }
+        .section-subtitle {
+            font-size: 13px;
+            color: var(--text-sub);
+            margin-bottom: 10px;
+        }
+
+        .student-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+
+        .student-card {
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: 12px 14px;
+            background-color: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .student-card.pending {
+            border-color: #facc15;
+            background-color: #fffbeb;
+        }
+
+        .student-card.missing {
+            border-style: dashed;
+            background-color: #f9fafb;
+        }
+
+        .student-card.evaluated {
+            border-color: #bfdbfe;
+            background-color: #eff6ff;
+        }
+
+        .student-name {
+            font-weight: 700;
+            color: #0f172a;
+        }
+
+        .student-meta {
+            font-size: 13px;
+            color: #64748b;
+        }
 
         .status-pill {
             display: inline-flex;
@@ -144,6 +170,11 @@
         .status-reviewed {
             background-color: #dcfce7;
             color: #166534;
+        }
+
+        .status-missing {
+            background-color: #fee2e2;
+            color: #b91c1c;
         }
 
         .btn-primary {
@@ -186,7 +217,7 @@
 
         <h1>Uploaded Sheets - {{ exam.subject }}</h1>
         <p class="subtitle">
-            Review student uploads for this exam, then run OCR and evaluation.
+            Review student uploads for this exam, see who still needs to upload, and run OCR &amp; evaluation.
         </p>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -199,52 +230,67 @@
             {% endif %}
         {% endwith %}
 
-        <div class="table-container">
-            <table cellspacing="0">
-                <thead>
-                    <tr>
-                        <th>Student</th>
-                        <th>Roll No</th>
-                        <th>Uploaded At</th>
-                        <th>Status</th>
-                        <th style="width: 220px;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% if sheets and sheets|length > 0 %}
-                        {% for sheet in sheets %}
-                            <tr>
-                                <td>{{ sheet.student.name if sheet.student else 'Unknown' }}</td>
-                                <td>{{ sheet.student.roll_no if sheet.student else '-' }}</td>
-                                <td>{{ sheet.upload_date.strftime('%Y-%m-%d %H:%M') }}</td>
-                                <td>
-                                    {% if sheet.status == AnswerSheetStatus.PENDING %}
-                                        <span class="status-pill status-pending">Pending</span>
-                                    {% elif sheet.status == AnswerSheetStatus.GRADED %}
-                                        <span class="status-pill status-graded">Graded</span>
-                                    {% elif sheet.status == AnswerSheetStatus.REVIEWED %}
-                                        <span class="status-pill status-reviewed">Reviewed</span>
-                                    {% else %}
-                                        <span class="status-pill">{{ sheet.status.value }}</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if sheet.status == AnswerSheetStatus.PENDING %}
-                                        <a href="{{ url_for('web.upload_page', sheet_id=sheet.sheet_id) }}" class="btn-primary">Extract &amp; Evaluate</a>
-                                    {% else %}
-                                        <a href="{{ url_for('web.review_page', sheet_id=sheet.sheet_id) }}" class="link-review">Open Review</a>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    {% else %}
-                        <tr>
-                            <td colspan="5" class="empty-text">No answer sheets uploaded for this exam yet.</td>
-                        </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
+        {% set has_pending = pending_sheets and pending_sheets|length > 0 %}
+        {% set has_missing = missing_students and missing_students|length > 0 %}
+        {% set has_evaluated = evaluated_sheets and evaluated_sheets|length > 0 %}
+
+        {% if not has_pending and not has_missing and not has_evaluated %}
+            <p class="empty-text">No students found for this exam yet.</p>
+        {% else %}
+            {% if has_pending %}
+                <h2 class="section-title">Uploaded – Waiting for Evaluation</h2>
+                <p class="section-subtitle">These students have uploaded their sheets, but evaluation has not been completed yet.</p>
+                <div class="student-grid">
+                    {% for sheet in pending_sheets %}
+                        <div class="student-card pending">
+                            <div class="student-name">{{ sheet.student.name if sheet.student else 'Unknown' }}</div>
+                            <div class="student-meta">Roll: {{ sheet.student.roll_no if sheet.student else '-' }} · Uploaded {{ sheet.upload_date.strftime('%Y-%m-%d %H:%M') }}</div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px;">
+                                <span class="status-pill status-pending">Pending</span>
+                                <a href="{{ url_for('web.upload_page', sheet_id=sheet.sheet_id) }}" class="btn-primary">Extract &amp; Evaluate</a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% if has_missing %}
+                <h2 class="section-title">Students Yet to Upload</h2>
+                <p class="section-subtitle">Students enrolled in the system who do not yet have an uploaded sheet for this exam.</p>
+                <div class="student-grid">
+                    {% for student in missing_students %}
+                        <div class="student-card missing">
+                            <div class="student-name">{{ student.name }}</div>
+                            <div class="student-meta">Roll: {{ student.roll_no }}</div>
+                            <span class="status-pill status-missing">No upload yet</span>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% if has_evaluated %}
+                <h2 class="section-title">Evaluated Students</h2>
+                <p class="section-subtitle">These students already have a graded or reviewed sheet.</p>
+                <div class="student-grid">
+                    {% for sheet in evaluated_sheets %}
+                        <div class="student-card evaluated">
+                            <div class="student-name">{{ sheet.student.name if sheet.student else 'Unknown' }}</div>
+                            <div class="student-meta">Roll: {{ sheet.student.roll_no if sheet.student else '-' }} · Uploaded {{ sheet.upload_date.strftime('%Y-%m-%d %H:%M') }}</div>
+                            <div style="display:flex; align-items:center; justify-content:space-between; margin-top:6px; gap:8px;">
+                                {% if sheet.status == AnswerSheetStatus.GRADED %}
+                                    <span class="status-pill status-graded">Graded</span>
+                                {% elif sheet.status == AnswerSheetStatus.REVIEWED %}
+                                    <span class="status-pill status-reviewed">Reviewed</span>
+                                {% else %}
+                                    <span class="status-pill">{{ sheet.status.value }}</span>
+                                {% endif %}
+                                <a href="{{ url_for('web.review_page', sheet_id=sheet.sheet_id) }}" class="link-review">Open Review</a>
+                            </div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endif %}
     </div>
 </body>
 </html>

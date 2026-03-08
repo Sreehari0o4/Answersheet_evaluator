@@ -1564,7 +1564,21 @@ def select_exam_for_evaluation():
     """
 
     exams = Exam.query.order_by(Exam.exam_id.asc()).all()
-    return render_template("evaluate_select_exam.html", exams=exams)
+
+    # For each exam, count how many uploaded sheets are still pending evaluation
+    pending_counts_rows = (
+        db.session.query(AnswerSheet.exam_id, db.func.count(AnswerSheet.sheet_id))
+        .filter(AnswerSheet.status == AnswerSheetStatus.PENDING)
+        .group_by(AnswerSheet.exam_id)
+        .all()
+    )
+    pending_by_exam = {exam_id: count for exam_id, count in pending_counts_rows}
+
+    return render_template(
+        "evaluate_select_exam.html",
+        exams=exams,
+        pending_by_exam=pending_by_exam,
+    )
 
 
 @web_bp.route("/teacher/exam/<int:exam_id>/sheets")
@@ -1578,16 +1592,36 @@ def teacher_exam_sheets(exam_id: int):
     """
 
     exam = Exam.query.get_or_404(exam_id)
+
+    # All sheets uploaded for this exam
     sheets = (
         AnswerSheet.query.filter_by(exam_id=exam.exam_id)
         .order_by(AnswerSheet.upload_date.desc())
         .all()
     )
 
+    # Group sheets by evaluation status for clearer sections in the UI.
+    pending_sheets = [s for s in sheets if s.status == AnswerSheetStatus.PENDING]
+    evaluated_sheets = [
+        s
+        for s in sheets
+        if s.status in {AnswerSheetStatus.GRADED, AnswerSheetStatus.REVIEWED}
+    ]
+
+    # Students without an uploaded sheet for this exam.
+    all_students = Student.query.order_by(Student.roll_no.asc()).all()
+    students_with_sheet = {s.student_id for s in sheets}
+    missing_students = [
+        st for st in all_students if st.student_id not in students_with_sheet
+    ]
+
     return render_template(
         "teacher_exam_sheets.html",
         exam=exam,
         sheets=sheets,
+        pending_sheets=pending_sheets,
+        evaluated_sheets=evaluated_sheets,
+        missing_students=missing_students,
         AnswerSheetStatus=AnswerSheetStatus,
     )
 

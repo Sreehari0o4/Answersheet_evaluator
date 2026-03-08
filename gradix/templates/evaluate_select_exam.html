@@ -67,51 +67,71 @@
             margin-bottom: 20px;
         }
 
-        .table-container {
+        .exam-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .exam-card {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 18px 18px 16px;
+            border-radius: 14px;
             border: 1px solid var(--border-color);
-            border-radius: 10px;
-            overflow-x: auto;
-            margin-top: 10px;
+            background-color: #f8fafc;
+            text-decoration: none;
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+            position: relative;
         }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 14px;
+        .exam-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 18px rgba(15, 23, 42, 0.18);
+            border-color: var(--primary-btn);
         }
 
-        thead { background-color: var(--table-header-bg); }
-
-        th, td {
-            padding: 12px 14px;
-            text-align: left;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        th {
+        .exam-pending-badge {
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            min-width: 22px;
+            padding: 3px 7px;
+            border-radius: 999px;
+            background-color: #fee2e2;
+            color: #b91c1c;
+            font-size: 11px;
             font-weight: 700;
-            color: #1e3a8a;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(15,23,42,0.25);
         }
 
-        tr:last-child td { border-bottom: none; }
+        .exam-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: #0f172a;
+            margin-bottom: 4px;
+        }
 
-        tr:hover td { background-color: #f8fafc; }
+        .exam-meta {
+            font-size: 13px;
+            color: var(--text-sub);
+            margin-bottom: 10px;
+        }
 
-        .btn-select {
-            border: none;
+        .exam-cta {
+            margin-top: 6px;
+            align-self: flex-start;
+            padding: 6px 12px;
+            border-radius: 999px;
             background-color: var(--primary-btn);
             color: #fff;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
-            padding: 8px 14px;
-            border-radius: 999px;
-            cursor: pointer;
-            transition: background-color 0.2s, transform 0.1s;
-        }
-
-        .btn-select:hover {
-            background-color: var(--primary-btn-hover);
-            transform: translateY(-1px);
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
         }
 
         .empty-text {
@@ -125,40 +145,32 @@
 <body>
     <div class="card">
         <a href="{{ url_for('web.teacher_dashboard') }}" class="back-link">
-            a Back to Dashboard
+            
+			← Back to Dashboard
         </a>
 
         <h1>Select Exam for Evaluation</h1>
         <p class="subtitle">Choose the exam you are evaluating now. The next page will only ask for the student roll number and answer sheet.</p>
 
-        <div class="table-container">
-            <table cellspacing="0">
-                <thead>
-                    <tr>
-                        <th>ID</th>
-                        <th>Subject</th>
-                        <th>Max Marks</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for exam in exams %}
-                        <tr>
-                            <td>{{ exam.exam_id }}</td>
-                            <td>{{ exam.subject }}</td>
-                            <td>{{ exam.max_marks }}</td>
-                            <td>
-                                <a href="{{ url_for('web.teacher_exam_sheets', exam_id=exam.exam_id) }}" class="btn-select">View Uploaded Sheets</a>
-                            </td>
-                        </tr>
-                    {% else %}
-                        <tr>
-                            <td colspan="4" class="empty-text">No exams available. Create an exam first.</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+        {% if exams %}
+            <div class="exam-grid">
+                {% for exam in exams %}
+                    {% set pending = (pending_by_exam.get(exam.exam_id) if pending_by_exam is defined else 0) %}
+                    <a href="{{ url_for('web.teacher_exam_sheets', exam_id=exam.exam_id) }}" class="exam-card">
+                        {% if pending and pending > 0 %}
+                            <div class="exam-pending-badge" title="Pending uploads to evaluate">{{ pending }}</div>
+                        {% endif %}
+                        <div>
+                            <div class="exam-title">{{ exam.subject }}</div>
+                            <div class="exam-meta">ID #{{ exam.exam_id }} · Max Marks {{ exam.max_marks }}</div>
+                        </div>
+                        <div class="exam-cta">View Uploaded Sheets</div>
+                    </a>
+                {% endfor %}
+            </div>
+        {% else %}
+            <p class="empty-text">No exams available. Create an exam first.</p>
+        {% endif %}
     </div>
 </body>
 </html>
