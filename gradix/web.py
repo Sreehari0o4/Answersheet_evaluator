@@ -1155,6 +1155,7 @@ def upload_page():
                             q_score = raw_score
 
                         ans_text = payload["student_answer"] or ""
+                        has_diagram = bool(out_item.get("has_diagram", False))
                         # Do not store Gemini-generated comments; feedback
                         # will be provided only by teachers during review.
                         per_q.append(
@@ -1163,6 +1164,7 @@ def upload_page():
                                 "answer_text": ans_text,
                                 "score": q_score,
                                 "feedback": "",
+                                "has_diagram": has_diagram,
                             }
                         )
 
@@ -1258,16 +1260,19 @@ def upload_page():
                         except (TypeError, ValueError):
                             q_score = 0.0
                         feedback_text = (item.get("feedback") or "").strip() or None
+                        has_diagram = bool(item.get("has_diagram", False))
                     else:
                         # No matching numbered answer in extracted text => unanswered
                         q_score = 0.0
                         feedback_text = "Unanswered"
+                        has_diagram = False
 
                     qe = QuestionEvaluation(
                         eval_id=evaluation.eval_id,
                         question_no=eq.question_no,
                         score=q_score,
                         feedback=feedback_text,
+                        has_diagram=has_diagram,
                     )
                     db.session.add(qe)
             else:
@@ -1282,6 +1287,7 @@ def upload_page():
                         eval_id=evaluation.eval_id,
                         question_no=q_no,
                         score=q_score,
+                        has_diagram=bool(item.get("has_diagram", False)),
                     )
                     db.session.add(qe)
 
@@ -1791,12 +1797,14 @@ def teacher_extract_evaluate_sheet(sheet_id: int):
                     q_score = raw_score
 
                 ans_text = payload["student_answer"] or ""
+                has_diagram = bool(out_item.get("has_diagram", False))
                 per_q.append(
                     {
                         "question_no": q_no,
                         "answer_text": ans_text,
                         "score": q_score,
                         "feedback": "",
+                        "has_diagram": has_diagram,
                     }
                 )
 
@@ -1875,15 +1883,18 @@ def teacher_extract_evaluate_sheet(sheet_id: int):
                 except (TypeError, ValueError):
                     q_score = 0.0
                 feedback_text = (item.get("feedback") or "").strip() or None
+                has_diagram = bool(item.get("has_diagram", False))
             else:
                 q_score = 0.0
                 feedback_text = "Unanswered"
+                has_diagram = False
 
             qe = QuestionEvaluation(
                 eval_id=evaluation.eval_id,
                 question_no=eq.question_no,
                 score=q_score,
                 feedback=feedback_text,
+                has_diagram=has_diagram,
             )
             db.session.add(qe)
     else:
@@ -1897,6 +1908,7 @@ def teacher_extract_evaluate_sheet(sheet_id: int):
                 eval_id=evaluation.eval_id,
                 question_no=q_no,
                 score=q_score,
+                has_diagram=bool(item.get("has_diagram", False)),
             )
             db.session.add(qe)
 
@@ -1991,7 +2003,8 @@ def review_page(sheet_id: int):
                     "score": qe.score,
                     "feedback": qe.feedback or "",
                     "or_group": or_group,
-                    "or_peers": or_peers,
+                        "or_peers": or_peers,
+                        "has_diagram": bool(getattr(qe, "has_diagram", False)),
                 }
             )
 
@@ -2468,7 +2481,8 @@ def student_exam_report(exam_id: int):
                         "max_marks": max_marks_val,
                         "feedback": qe.feedback or "",
                         "or_group": or_group,
-                        "or_peers": or_peers,
+                            "or_peers": or_peers,
+                            "has_diagram": bool(getattr(qe, "has_diagram", False)),
                     }
                 )
 
@@ -2640,6 +2654,7 @@ def teacher_report(student_id: int, exam_id: int):
                         "feedback": qe.feedback or "",
                         "or_group": or_group,
                         "or_peers": or_peers,
+                        "has_diagram": bool(getattr(qe, "has_diagram", False)),
                     }
                 )
 

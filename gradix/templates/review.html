@@ -412,6 +412,11 @@
                                                     {{ item.or_peers | sort | join(', ') }}
                                                 </div>
                                             {% endif %}
+                                            {% if item.has_diagram %}
+                                                <div style="font-size:11px; color:#16a34a; margin-top:2px; font-weight:600;">
+                                                    Diagram evaluated
+                                                </div>
+                                            {% endif %}
                                             <input type="hidden" name="question_no" value="{{ item.question_no }}">
                                             {% if commented_q_nos and item.question_no in commented_q_nos %}
                                                 <div class="student-review-badge">Student asked to review</div>
@@ -453,6 +458,11 @@
                                             <div style="font-size:11px; color:#64748b; margin-top:2px;">
                                                 OR with
                                                 {{ item.or_peers | sort | join(', ') }}
+                                            </div>
+                                        {% endif %}
+                                        {% if item.has_diagram %}
+                                            <div style="font-size:11px; color:#16a34a; margin-top:2px; font-weight:600;">
+                                                Diagram evaluated
                                             </div>
                                         {% endif %}
                                     </td>

@@ -139,6 +139,9 @@ class QuestionEvaluation(db.Model):
     question_no = db.Column(db.Integer, nullable=False)
     score = db.Column(db.Float, nullable=False)
     feedback = db.Column(db.Text, nullable=True)
+    # Whether the evaluator (Gemini/teacher) considered a diagram/figure
+    # for this question on the uploaded sheet.
+    has_diagram = db.Column(db.Boolean, nullable=False, default=False)
 
     evaluation = db.relationship(
         "Evaluation",

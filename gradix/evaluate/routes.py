@@ -180,6 +180,7 @@ def evaluate_sheet(sheet_id: int):
                 except (TypeError, ValueError):
                     q_score = 0.0
                 feedback_text = (item.get("feedback") or "").strip()
+                has_diagram = bool(item.get("has_diagram", False))
                 ans_text = next(
                     (x["student_answer"] for x in payload_items if x["question_no"] == q_no),
                     "",
@@ -190,6 +191,7 @@ def evaluate_sheet(sheet_id: int):
                         "answer_text": ans_text,
                         "score": q_score,
                         "feedback": feedback_text,
+                        "has_diagram": has_diagram,
                     }
                 )
 
@@ -264,9 +266,11 @@ def evaluate_sheet(sheet_id: int):
                 except (TypeError, ValueError):
                     q_score = 0.0
                 feedback_text = None
+                has_diagram = bool(item.get("has_diagram", False))
             else:
                 q_score = 0.0
                 feedback_text = "Unanswered"
+                has_diagram = False
 
             qe = existing_q.get(eq.question_no)
             if qe is None:
@@ -275,11 +279,13 @@ def evaluate_sheet(sheet_id: int):
                     question_no=eq.question_no,
                     score=q_score,
                     feedback=feedback_text,
+                    has_diagram=has_diagram,
                 )
                 db.session.add(qe)
             else:
                 qe.score = q_score
                 qe.feedback = feedback_text
+                qe.has_diagram = has_diagram
     else:
         # Legacy behaviour: rely solely on numbered segments
         for item in per_q:
@@ -289,15 +295,18 @@ def evaluate_sheet(sheet_id: int):
             except (TypeError, ValueError):
                 continue
             qe = existing_q.get(q_no)
+            has_diagram = bool(item.get("has_diagram", False))
             if qe is None:
                 qe = QuestionEvaluation(
                     eval_id=evaluation.eval_id,
                     question_no=q_no,
                     score=q_score,
+                    has_diagram=has_diagram,
                 )
                 db.session.add(qe)
             else:
                 qe.score = q_score
+                qe.has_diagram = has_diagram
 
     sheet.status = AnswerSheetStatus.GRADED
 

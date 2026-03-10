@@ -273,6 +273,11 @@
                                                 {{ item.or_peers | sort | join(', ') }}
                                             </div>
                                         {% endif %}
+                                        {% if item.has_diagram %}
+                                            <div style="font-size:11px; color:#16a34a; margin-top:2px; font-weight:600;">
+                                                Diagram evaluated
+                                            </div>
+                                        {% endif %}
                                     </td>
                                     <td>{{ item.answer_text[:160] }}{% if item.answer_text|length > 160 %}...{% endif %}</td>
                                     <td>

@@ -175,7 +175,12 @@ def evaluate_answers_with_gemini(
 
         {
             "questions": [
-                {"question_no": int, "score": float, "feedback": str}
+                {
+                    "question_no": int,
+                    "score": float,
+                    "feedback": str,
+                    "has_diagram": bool  # optional, defaults False when missing
+                }
             ],
             "total_score": float
         }
@@ -231,25 +236,34 @@ def evaluate_answers_with_gemini(
     # be reserved only for answers that clearly meet all key points expected
     # for the given max_marks.
     lines.append(
-        "Be strict, not lenient: only award full marks when the student's answer "
-        "is complete and clearly correct; give low or zero marks when important "
-        "steps, justifications, or key concepts are missing."
+        "Be clearly strict, not lenient: only award full marks when the student's "
+        "answer covers almost all key points with correct reasoning and clear "
+        "structure. If 20–30% of the important points are missing, reduce the "
+        "score to around 50–70% of max_marks. If about half or more of the key "
+        "ideas are missing, give low marks (0–40% of max_marks). Give zero or "
+        "near-zero marks when the answer is mostly irrelevant, extremely short, "
+        "or fundamentally wrong even if some words look related."
     )
 
     lines.append(
         "For each question, output a JSON object with: question_no (int), "
-        "score (float between 0 and max_marks, inclusive), and feedback (short "
-        "explanation). Use the full range [0, max_marks] where appropriate: "
-        "answers that are mostly correct should receive a score close to "
-        "max_marks, not a tiny decimal. Do not say that a question is "
-        "unanswered if there is any non-trivial student text; in that case, "
-        "assign at least some partial marks if any relevant points are present."
+        "score (float between 0 and max_marks, inclusive), feedback (short "
+        "explanation), and has_diagram (bool). has_diagram must be true if the "
+        "student's answer for that question includes any meaningful diagram, "
+        "ray diagram, graph, labelled figure, circuit diagram, or sketch that "
+        "is part of the answer; otherwise it must be false. Use the full range "
+        "[0, max_marks] where appropriate: answers that are mostly correct "
+        "should receive a score close to max_marks, not a tiny decimal. Do not "
+        "say that a question is unanswered if there is any non-trivial student "
+        "text; in that case, assign at least some partial marks if any "
+        "relevant points are present."
     )
     lines.append(
         "Finally, also include total_score as the sum of per-question scores. "
         "Return ONLY JSON with this structure: "
-        "{\"questions\":[{\"question_no\":int,\"score\":float,\"feedback\":str}],"
-        " \"total_score\": float}."
+        "{\"questions\":[{\"question_no\":int,\"score\":float,\"feedback\":str,"
+        "\"has_diagram\":bool}], \"total_score\": float}. Do not include "
+        "any extra keys."
     )
 
     if sheet_image_path:
@@ -301,7 +315,10 @@ def evaluate_answers_with_gemini(
     response = model.generate_content(
         gen_inputs,
         generation_config={
-            "temperature": 0.1,
+            # Use a near-deterministic setting so the same sheet
+            # evaluated multiple times gets stable marks.
+            "temperature": 0.0,
+            "top_p": 0.1,
             "response_mime_type": "application/json",
         },
     )
